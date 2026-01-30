@@ -1,5 +1,5 @@
 const Submission = require('../models/Submission');
-const Problem = require('../models/Problem');
+const Problem = require('../models/problem');
 const { runCodeWithPiston } = require('../utils/problemUtility');
 
 const submitCode = async (req, res) => {
@@ -78,6 +78,12 @@ const submitCode = async (req, res) => {
     submission.errorMessage = '';
 
     await submission.save();
+
+    // updated
+    const io = req.app.get('io');
+      if (io) {
+        await notifyStudyGroups(req.user._id, problemId, io);
+      }
 
     // ✅ TEACHER'S WAY: Update solved problems
 if (!req.user.problemsSolved.includes(problemId)) {
@@ -174,4 +180,64 @@ const runCode = async (req, res) => {
   }
 };
 
-module.exports = {submitCode, runCode}
+const notifyStudyGroups = async (userId, problemId, io) => {
+  try {
+    const GroupMember = require('../models/GroupMember');
+    const GroupSession = require('../models/GroupSession');
+    const Problem = require('../models/problem');
+    
+    // Find active sessions where user is a member and problem matches
+    const userGroups = await GroupMember.find({ userId }).select('groupId');
+    const groupIds = userGroups.map(g => g.groupId);
+    
+    const activeSessions = await GroupSession.find({
+      groupId: { $in: groupIds },
+      problemId: problemId,
+      status: 'active'
+    }).populate('problemId', 'title');
+    
+    // Emit socket event to each active session
+    activeSessions.forEach(session => {
+      const roomId = `session-${session._id}`;
+      io.to(roomId).emit('member-solved-problem', {
+        userId: userId,
+        problemId: problemId,
+        problemTitle: session.problemId.title,
+        sessionId: session._id,
+        timestamp: new Date()
+      });
+    });
+  } catch (error) {
+    console.error('Notify study groups error:', error);
+  }
+};
+
+// EXAMPLE: How to integrate into your existing submitCode function
+// Find this section in your code and add the notification:
+
+/*
+const submitCode = async (req, res) => {
+  try {
+    // ... your existing submission logic ...
+    
+    // After creating the submission and it's accepted:
+    if (submission.status === 'accepted') {
+      // Your existing code to update user's solved problems
+      
+      // ⭐ ADD THIS: Notify study groups
+      const io = req.app.get('io');
+      if (io) {
+        await notifyStudyGroups(req.user._id, problemId, io);
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      submission: submission
+    });
+  } catch (error) {
+    // ... error handling ...
+  }
+};
+*/
+module.exports = {submitCode, runCode , notifyStudyGroups};

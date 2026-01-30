@@ -1,0 +1,3 @@
+Study Group Rooms: Private spaces for teams/classes to practice together
+Code Quality Metrics: Track improvement in coding style over time
+Code Golf Mode: Compete for shortest/most elegant solutions

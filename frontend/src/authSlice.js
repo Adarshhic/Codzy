@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import axiosClient from './utils/axiosClient';
+import { initializeSocket, disconnectSocket } from './utils/socket';
 
 /* ===========================
    REGISTER
@@ -108,8 +109,16 @@ const authSlice = createSlice({
       })
       .addCase(loginUser.fulfilled, (state, action) => {
         state.loading = false;
-        state.user = action.payload;
         state.isAuthenticated = true;
+        state.user = action.payload;
+        state.error = null;
+        
+        // ⭐ Initialize socket connection
+        try {
+          initializeSocket(action.payload._id, action.payload.FirstName);
+        } catch (error) {
+          console.error('Socket initialization error:', error);
+        }
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.loading = false;
@@ -125,8 +134,15 @@ const authSlice = createSlice({
       })
       .addCase(checkAuth.fulfilled, (state, action) => {
         state.loading = false;
-        state.user = action.payload;
         state.isAuthenticated = true;
+        state.user = action.payload;
+        
+        // ⭐ Initialize socket if not already connected
+        try {
+          initializeSocket(action.payload._id, action.payload.FirstName);
+        } catch (error) {
+          console.error('Socket initialization error:', error);
+        }
       })
       .addCase(checkAuth.rejected, (state) => {
         state.loading = false;
@@ -141,9 +157,12 @@ const authSlice = createSlice({
       })
       .addCase(logoutUser.fulfilled, (state) => {
         state.loading = false;
-        state.user = null;
         state.isAuthenticated = false;
+        state.user = null;
         state.error = null;
+        
+        // ⭐ Disconnect socket
+        disconnectSocket();
       })
       .addCase(logoutUser.rejected, (state, action) => {
         state.loading = false;

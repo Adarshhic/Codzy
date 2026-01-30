@@ -77,18 +77,37 @@ function Homepage() {
       {/* Navigation Bar - Glassmorphism */}
       <nav className="sticky top-0 z-50 bg-white/70 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.06)] border-b border-white/20 px-8 py-5">
         <div className="container mx-auto flex items-center justify-between">
-          <div className="flex-1">
+          <div className="flex-1 flex items-center gap-8">
             <NavLink to="/" className="text-3xl font-black bg-gradient-to-r from-[#7000FF] to-[#2DD4BF] bg-clip-text text-transparent tracking-tight">
               Codzy
             </NavLink>
+            
+            {/* ⭐ NEW: Study Groups Link */}
+            <NavLink 
+              to="/study-groups" 
+              className={({ isActive }) => `text-sm font-bold transition-all duration-200 flex items-center gap-2 px-4 py-2 rounded-full ${
+                isActive 
+                  ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-100' 
+                  : 'text-slate-700 hover:text-indigo-600 hover:bg-slate-50'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+              Study Groups
+            </NavLink>
           </div>
+          
           <div className="flex items-center gap-6">
             {user && (
               <>
                 <span className="text-sm font-semibold text-slate-600 px-4 py-2 bg-white/60 rounded-full backdrop-blur-sm border border-slate-100">
                   Welcome, {user.firstName || user.FirstName}
                 </span>
-                {user.role=='Admin'&&(
+                {user.role === 'Admin' && (
                   <NavLink to="/admin" className="text-sm font-bold text-indigo-600 hover:text-indigo-700 transition-colors">
                     Admin
                   </NavLink>
