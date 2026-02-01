@@ -14,13 +14,13 @@ function Dashboard() {
       dispatch(logoutUser());
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      navigate('/login');
+      navigate('/');
     } catch (error) {
       console.error('Logout error:', error);
       dispatch(logoutUser());
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      navigate('/login');
+      navigate('/');
     }
   };
 

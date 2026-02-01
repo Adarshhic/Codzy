@@ -15,7 +15,8 @@ import StudyGroups from "./pages/StudyGroups"; // ⭐ NEW
 import GroupDetail from "./pages/GroupDetail"; // ⭐ NEW
 import LiveSession from "./pages/LiveSession"; // ⭐ NEW
 import { Toaster } from 'react-hot-toast'; // ⭐ NEW
-
+import LandingPage from "./pages/LandingPage.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
 function App() {
   const dispatch = useDispatch();
   const { isAuthenticated, user, loading } = useSelector((state) => state.auth);
@@ -62,40 +63,52 @@ function App() {
       />
 
       <Routes>
-        {/* Public routes */}
+        {/* Public routes - Landing page for non-authenticated users */}
         <Route 
           path="/" 
-          element={isAuthenticated ? <Homepage /> : <Navigate to="/signup" replace />}
+          element={!isAuthenticated ? <LandingPage /> : <Navigate to="/dashboard" replace />}
         />
         <Route 
           path="/login" 
-          element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
+          element={!isAuthenticated ? <LoginPage /> : <Navigate to="/dashboard" replace />}
         />
         <Route 
           path="/signup" 
-          element={isAuthenticated ? <Navigate to="/" replace /> : <SignupPage />}
+          element={!isAuthenticated ? <SignupPage /> : <Navigate to="/dashboard" replace />}
+        />
+
+        {/* Protected routes - Dashboard as main hub after login */}
+        <Route 
+          path="/dashboard" 
+          element={isAuthenticated ? <Dashboard /> : <Navigate to="/" replace />}
+        />
+        
+        {/* Problems list page */}
+        <Route 
+          path="/problems" 
+          element={isAuthenticated ? <Homepage /> : <Navigate to="/login" replace />}
         />
 
         {/* Admin routes */}
         <Route 
           path="/admin" 
-          element={isAuthenticated && user?.role === 'Admin' ? <Admin /> : <Navigate to="/" replace />} 
+          element={isAuthenticated && user?.role === 'Admin' ? <Admin /> : <Navigate to="/dashboard" replace />} 
         />
         <Route 
           path="/admin/create" 
-          element={isAuthenticated && user?.role === 'Admin' ? <AdminPanel /> : <Navigate to="/" replace />} 
+          element={isAuthenticated && user?.role === 'Admin' ? <AdminPanel /> : <Navigate to="/dashboard" replace />} 
         />
         <Route 
           path="/admin/delete" 
-          element={isAuthenticated && user?.role === 'Admin' ? <AdminDelete /> : <Navigate to="/" replace />} 
+          element={isAuthenticated && user?.role === 'Admin' ? <AdminDelete /> : <Navigate to="/dashboard" replace />} 
         />
         <Route 
           path="/admin/video" 
-          element={isAuthenticated && user?.role === 'Admin' ? <AdminVideo /> : <Navigate to="/" />} 
+          element={isAuthenticated && user?.role === 'Admin' ? <AdminVideo /> : <Navigate to="/dashboard" />} 
         />
         <Route 
           path="/admin/upload/:problemId" 
-          element={isAuthenticated && user?.role === 'Admin' ? <AdminUpload /> : <Navigate to="/" />} 
+          element={isAuthenticated && user?.role === 'Admin' ? <AdminUpload /> : <Navigate to="/dashboard" />} 
         />
         
         {/* Problem routes */}
@@ -104,7 +117,7 @@ function App() {
           element={isAuthenticated ? <ProblemPage /> : <Navigate to="/login" replace />}
         />
 
-        {/* ⭐ Study Group routes */}
+        {/* Study Group routes */}
         <Route 
           path="/study-groups" 
           element={isAuthenticated ? <StudyGroups /> : <Navigate to="/login" replace />}

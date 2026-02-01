@@ -49,13 +49,13 @@ function Homepage() {
       setProblems([]);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      navigate('/login');
+      navigate('/');
     } catch (error) {
       console.error('Logout error:', error);
       dispatch(logoutUser());
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      navigate('/login');
+      navigate('/');
     }
   };
 
@@ -78,7 +78,7 @@ function Homepage() {
       <nav className="sticky top-0 z-50 bg-white/70 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.06)] border-b border-white/20 px-8 py-5">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex-1 flex items-center gap-8">
-            <NavLink to="/" className="text-3xl font-black bg-gradient-to-r from-[#7000FF] to-[#2DD4BF] bg-clip-text text-transparent tracking-tight">
+            <NavLink to="/dashboard" className="text-3xl font-black bg-gradient-to-r from-[#7000FF] to-[#2DD4BF] bg-clip-text text-transparent tracking-tight">
               Codzy
             </NavLink>
             
