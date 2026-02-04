@@ -21,7 +21,6 @@ const InterviewDashboard = () => {
     fetchSessions();
   }, []);
 
-  // Fetch problems when modal opens
   useEffect(() => {
     if (showCreateModal && problems.length === 0) {
       fetchProblems();
@@ -46,42 +45,37 @@ const InterviewDashboard = () => {
   const fetchProblems = async () => {
     setLoadingProblems(true);
     try {
-      // Try multiple possible endpoints
-      let response;
+      console.log('Fetching problems from /problem/getAllProblem...');
       
-      try {
-        // First try: /problem/getProblems
-        response = await axiosClient.get('/problem/getProblems');
-        console.log('Problems response (getProblems):', response.data);
-      } catch (err) {
-        console.log('Trying alternate endpoint...');
-        // Second try: /problem/
-        response = await axiosClient.get('/problem/');
-        console.log('Problems response (/):', response.data);
-      }
+      // Use the correct endpoint from your backend
+      const response = await axiosClient.get('/problem/getAllProblem');
+      console.log('Problems response:', response.data);
 
-      // Handle different response structures
+      // Handle response structure from getAllProblem endpoint
+      // Backend returns: { success: true, message: [...problems] }
       let problemsData = [];
       
-      if (response.data.problems) {
+      if (response.data.message && Array.isArray(response.data.message)) {
+        problemsData = response.data.message;
+      } else if (response.data.problems) {
         problemsData = response.data.problems;
       } else if (Array.isArray(response.data)) {
         problemsData = response.data;
-      } else if (response.data.data) {
-        problemsData = response.data.data;
       }
 
       console.log('Parsed problems:', problemsData);
+      console.log('Number of problems:', problemsData.length);
+      
       setProblems(problemsData);
       
       if (problemsData.length === 0) {
-        console.warn('No problems found. You may need to create problems first.');
+        console.warn('⚠️ No problems found. Please create problems from admin panel.');
+      } else {
+        console.log(`✅ Successfully loaded ${problemsData.length} problems`);
       }
     } catch (error) {
-      console.error('Error fetching problems:', error);
+      console.error('❌ Error fetching problems:', error);
       console.error('Error details:', error.response?.data);
-      
-      // Show user-friendly error
       alert('Could not load problems. Please make sure problems exist in the system.');
     } finally {
       setLoadingProblems(false);
@@ -100,12 +94,8 @@ const InterviewDashboard = () => {
       const response = await createInterviewSession(selectedProblem, selectedDifficulty);
       console.log('Session created:', response);
       setShowCreateModal(false);
-      
-      // Reset form
       setSelectedProblem('');
       setSelectedDifficulty('medium');
-      
-      // Navigate to the session
       navigate(`/interview/session/${response.session._id}`);
     } catch (error) {
       console.error('Error creating session:', error);

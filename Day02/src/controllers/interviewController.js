@@ -57,7 +57,7 @@ exports.createInterviewSession = async (req, res) => {
     await channel.create();
 
     // Populate session data
-    await session.populate('problem interviewer', 'title difficulty name email');
+    await session.populate('problem interviewer', 'title difficulty name email FirstName');
 
     res.status(201).json({ 
       success: true, 
@@ -81,7 +81,7 @@ exports.getActiveInterviewSessions = async (req, res) => {
       status: { $in: ['waiting', 'active'] },
       candidate: null  // Only sessions without a candidate
     })
-      .populate('interviewer', 'name email')
+      .populate('interviewer', 'name email FirstName')
       .populate('problem', 'title difficulty')
       .sort({ createdAt: -1 })
       .limit(20);
@@ -111,7 +111,7 @@ exports.getMyInterviewSessions = async (req, res) => {
         { candidate: userId }
       ]
     })
-      .populate('interviewer candidate', 'name email')
+      .populate('interviewer candidate', 'name email FirstName')
       .populate('problem', 'title difficulty')
       .sort({ createdAt: -1 })
       .limit(50);
@@ -136,7 +136,7 @@ exports.getInterviewSessionById = async (req, res) => {
     const { id } = req.params;
 
     const session = await InterviewSession.findById(id)
-      .populate('interviewer candidate', 'name email')
+      .populate('interviewer candidate', 'name email FirstName')
       .populate('problem', 'title difficulty description testCases');
 
     if (!session) {
@@ -206,7 +206,7 @@ exports.joinInterviewSession = async (req, res) => {
     const channel = chatClient.channel('messaging', session.callId);
     await channel.addMembers([candidateId.toString()]);
 
-    await session.populate('interviewer candidate', 'name email');
+    await session.populate('interviewer candidate', 'name email FirstName');
     await session.populate('problem', 'title difficulty');
 
     res.status(200).json({ 
@@ -229,7 +229,7 @@ exports.endInterviewSession = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
-    const { notes, rating, codeSnapshot } = req.body;
+    const { notes, rating, codeSnapshot, language } = req.body;
 
     const session = await InterviewSession.findById(id);
 
@@ -261,6 +261,7 @@ exports.endInterviewSession = async (req, res) => {
     if (notes) session.notes = notes;
     if (rating) session.rating = rating;
     if (codeSnapshot) session.codeSnapshot = codeSnapshot;
+    if (language) session.language = language;
     await session.save();
 
     // Delete Stream video call
@@ -302,9 +303,11 @@ exports.generateStreamToken = async (req, res) => {
     // Generate token for Stream SDK
     const token = streamClient.createToken(userId);
     
+    // FIXED: Return userId along with token
     res.status(200).json({ 
       success: true, 
-      token 
+      token,
+      userId: userId  // ✅ Frontend needs this
     });
   } catch (error) {
     console.error('Error generating Stream token:', error);
