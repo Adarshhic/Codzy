@@ -10,6 +10,7 @@ const submitRouter = require('./routes/submit');
 const aiRouter = require('./routes/aiChatting');
 const videoRouter = require('./routes/videoCreator');
 const studyGroupRouter = require('./routes/studyGroup');
+const interviewRouter = require('./routes/interview');
 const cors = require('cors');
 const socketIo = require('socket.io');
 
@@ -64,6 +65,7 @@ app.use('/submission',submitRouter);
 app.use('/ai',aiRouter);
 app.use('/study-groups', studyGroupRouter);
 app.use('/video', videoRouter);
+app.use('/interview', interviewRouter);
 
 
 const initializeConnections = async () => {
@@ -73,7 +75,6 @@ const initializeConnections = async () => {
       redisClient.connect()   // Redis
     ]);
 
-    console.log('Connected to Database and Redis successfully');
 
    server.listen(process.env.PORT, () => {
   console.log('Server running at port', process.env.PORT);
@@ -88,10 +89,3 @@ const initializeConnections = async () => {
 
 initializeConnections();
 
-// main().then(() => {
-// app.listen(process.env.PORT, () => {
-//     console.log('server running at port', process.env.PORT);
-// });
-// }).catch((err) => {
-//     console.log('Failed to connect to the database', err);
-// });

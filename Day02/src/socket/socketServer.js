@@ -5,6 +5,8 @@ const GroupProgress = require('../models/GroupProgress');
 // In-memory storage for active connections
 const activeRooms = new Map(); // roomId -> Set of socket objects
 const userSocketMap = new Map(); // userId -> socketId
+const interviewSessions = new Map(); // sessionId -> Set of socketIds
+const interviewUserSockets = new Map(); // socketId -> { userId, sessionId }
 
 const initializeSocket = (io) => {
   // Middleware to authenticate socket connections
@@ -29,7 +31,110 @@ const initializeSocket = (io) => {
   io.on('connection', (socket) => {
     console.log(`✅ User connected: ${socket.username} (${socket.id})`);
 
-    // ==================== JOIN ROOM ====================
+    // ==================== INTERVIEW SESSION HANDLERS ====================
+    
+    /**
+     * Join an interview session room
+     */
+    socket.on('join-interview', (sessionId) => {
+      if (!sessionId) {
+        console.error('No sessionId provided for join-interview');
+        return;
+      }
+
+      console.log(`Socket ${socket.id} joining interview session: ${sessionId}`);
+
+      // Leave any previous interview session
+      const previousSession = interviewUserSockets.get(socket.id)?.sessionId;
+      if (previousSession && previousSession !== sessionId) {
+        handleLeaveInterview(socket, previousSession);
+      }
+
+      // Join the interview room
+      socket.join(`interview-${sessionId}`);
+
+      // Track the session
+      if (!interviewSessions.has(sessionId)) {
+        interviewSessions.set(sessionId, new Set());
+      }
+      interviewSessions.get(sessionId).add(socket.id);
+
+      // Store user info
+      interviewUserSockets.set(socket.id, {
+        socketId: socket.id,
+        sessionId,
+        joinedAt: new Date(),
+      });
+
+      // Notify all participants about active users
+      const activeUsers = interviewSessions.get(sessionId).size;
+      io.to(`interview-${sessionId}`).emit('active-users', { count: activeUsers });
+
+      socket.emit('joined-interview', { sessionId, activeUsers });
+      
+      console.log(`Session ${sessionId} now has ${activeUsers} active user(s)`);
+    });
+
+    /**
+     * Handle code changes in interview
+     */
+    socket.on('code-change', ({ sessionId, code, language }) => {
+      if (!sessionId) {
+        console.error('No sessionId provided for code-change');
+        return;
+      }
+
+      const userInfo = interviewUserSockets.get(socket.id);
+      if (!userInfo || userInfo.sessionId !== sessionId) {
+        console.error('User not in session or session mismatch');
+        return;
+      }
+
+      console.log(`Code change in session ${sessionId} from ${socket.id}`);
+
+      // Broadcast to all other participants in the session (except sender)
+      socket.to(`interview-${sessionId}`).emit('code-update', {
+        code,
+        language,
+        userId: socket.id,
+        timestamp: Date.now(),
+      });
+    });
+
+    /**
+     * Handle language changes in interview
+     */
+    socket.on('language-change', ({ sessionId, language }) => {
+      if (!sessionId) {
+        console.error('No sessionId provided for language-change');
+        return;
+      }
+
+      const userInfo = interviewUserSockets.get(socket.id);
+      if (!userInfo || userInfo.sessionId !== sessionId) {
+        console.error('User not in session or session mismatch');
+        return;
+      }
+
+      console.log(`Language change in session ${sessionId}: ${language}`);
+
+      // Broadcast to all other participants
+      socket.to(`interview-${sessionId}`).emit('language-change', {
+        language,
+        userId: socket.id,
+        timestamp: Date.now(),
+      });
+    });
+
+    /**
+     * Leave interview session
+     */
+    socket.on('leave-interview', (sessionId) => {
+      handleLeaveInterview(socket, sessionId);
+    });
+
+    // ==================== STUDY GROUP HANDLERS ====================
+
     socket.on('join-room', async ({ roomId, groupId, sessionId }) => {
       try {
         // Verify user is a member of the group
@@ -101,17 +206,15 @@ const initializeSocket = (io) => {
           timestamp: systemMessage.createdAt
         });
 
-        console.log(`📥 ${socket.username} joined room: ${roomId}`);
+        console.log(`🔥 ${socket.username} joined room: ${roomId}`);
       } catch (error) {
         console.error('Join room error:', error);
         socket.emit('error', { message: 'Failed to join room' });
       }
     });
 
-    // ==================== SEND MESSAGE ====================
     socket.on('send-message', async ({ roomId, groupId, sessionId, message, messageType = 'text' }) => {
       try {
-        // Save message to database
         const newMessage = await GroupMessage.create({
           groupId: groupId,
           sessionId: sessionId,
@@ -120,11 +223,9 @@ const initializeSocket = (io) => {
           messageType: messageType
         });
 
-        // Populate user info
         const populatedMessage = await GroupMessage.findById(newMessage._id)
           .populate('userId', 'FirstName EmailId');
 
-        // Broadcast to all users in the room
         io.to(roomId).emit('receive-message', {
           _id: populatedMessage._id,
           userId: populatedMessage.userId._id,
@@ -141,9 +242,7 @@ const initializeSocket = (io) => {
       }
     });
 
-    // ==================== CODE CHANGE (Real-time Sync) ====================
     socket.on('code-change', ({ roomId, code, language, cursorPosition }) => {
-      // Broadcast code changes to all other users in the room
       socket.to(roomId).emit('code-updated', {
         userId: socket.userId,
         username: socket.username,
@@ -154,7 +253,6 @@ const initializeSocket = (io) => {
       });
     });
 
-    // ==================== CURSOR POSITION ====================
     socket.on('cursor-position', ({ roomId, position }) => {
       socket.to(roomId).emit('cursor-update', {
         userId: socket.userId,
@@ -163,10 +261,8 @@ const initializeSocket = (io) => {
       });
     });
 
-    // ==================== PROBLEM CHANGE (Admin/Moderator) ====================
     socket.on('problem-change', async ({ roomId, groupId, problemId, problemTitle }) => {
       try {
-        // Verify user is admin/moderator
         const member = await GroupMember.findOne({
           groupId: groupId,
           userId: socket.userId
@@ -177,7 +273,6 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Broadcast problem change to everyone
         io.to(roomId).emit('problem-changed', {
           problemId: problemId,
           problemTitle: problemTitle,
@@ -185,7 +280,6 @@ const initializeSocket = (io) => {
           timestamp: new Date()
         });
 
-        // Send system message
         const systemMessage = await GroupMessage.create({
           groupId: groupId,
           sessionId: socket.currentSessionId,
@@ -203,17 +297,15 @@ const initializeSocket = (io) => {
           timestamp: systemMessage.createdAt
         });
 
-        console.log(`🔄 Problem changed in ${roomId} to: ${problemTitle}`);
+        console.log(`📄 Problem changed in ${roomId} to: ${problemTitle}`);
       } catch (error) {
         console.error('Problem change error:', error);
         socket.emit('error', { message: 'Failed to change problem' });
       }
     });
 
-    // ==================== USER SOLVED PROBLEM ====================
     socket.on('problem-solved', async ({ roomId, groupId, problemId, problemTitle }) => {
       try {
-        // Update group progress
         let progress = await GroupProgress.findOne({ groupId, problemId });
 
         if (!progress) {
@@ -228,7 +320,6 @@ const initializeSocket = (io) => {
           await progress.save();
         }
 
-        // Broadcast celebration to everyone
         io.to(roomId).emit('user-solved-problem', {
           userId: socket.userId,
           username: socket.username,
@@ -236,7 +327,6 @@ const initializeSocket = (io) => {
           timestamp: new Date()
         });
 
-        // Send system message
         const systemMessage = await GroupMessage.create({
           groupId: groupId,
           sessionId: socket.currentSessionId,
@@ -260,7 +350,6 @@ const initializeSocket = (io) => {
       }
     });
 
-    // ==================== TYPING INDICATOR ====================
     socket.on('typing-start', ({ roomId }) => {
       socket.to(roomId).emit('user-typing', {
         userId: socket.userId,
@@ -274,12 +363,10 @@ const initializeSocket = (io) => {
       });
     });
 
-    // ==================== LEAVE ROOM ====================
     socket.on('leave-room', async ({ roomId, groupId }) => {
       try {
         socket.leave(roomId);
 
-        // Remove from active users
         if (activeRooms.has(roomId)) {
           activeRooms.get(roomId).delete(socket);
           if (activeRooms.get(roomId).size === 0) {
@@ -288,14 +375,12 @@ const initializeSocket = (io) => {
         }
         userSocketMap.delete(socket.userId);
 
-        // Notify others
         socket.to(roomId).emit('user-left', {
           userId: socket.userId,
           username: socket.username,
           timestamp: new Date()
         });
 
-        // Send system message
         if (groupId && socket.currentSessionId) {
           const systemMessage = await GroupMessage.create({
             groupId: groupId,
@@ -315,7 +400,7 @@ const initializeSocket = (io) => {
           });
         }
 
-        console.log(`📤 ${socket.username} left room: ${roomId}`);
+        console.log(`🔙 ${socket.username} left room: ${roomId}`);
       } catch (error) {
         console.error('Leave room error:', error);
       }
@@ -324,11 +409,17 @@ const initializeSocket = (io) => {
     // ==================== DISCONNECT ====================
     socket.on('disconnect', async () => {
       try {
+        // Clean up interview session if user was in one
+        const interviewInfo = interviewUserSockets.get(socket.id);
+        if (interviewInfo?.sessionId) {
+          handleLeaveInterview(socket, interviewInfo.sessionId);
+        }
+
+        // Clean up study group room
         const roomId = socket.currentRoom;
         const groupId = socket.currentGroupId;
 
         if (roomId) {
-          // Clean up
           if (activeRooms.has(roomId)) {
             activeRooms.get(roomId).delete(socket);
             if (activeRooms.get(roomId).size === 0) {
@@ -337,14 +428,12 @@ const initializeSocket = (io) => {
           }
           userSocketMap.delete(socket.userId);
 
-          // Notify others
           socket.to(roomId).emit('user-left', {
             userId: socket.userId,
             username: socket.username,
             timestamp: new Date()
           });
 
-          // Send system message
           if (groupId && socket.currentSessionId) {
             const systemMessage = await GroupMessage.create({
               groupId: groupId,
@@ -372,7 +461,36 @@ const initializeSocket = (io) => {
     });
   });
 
-  console.log('🚀 Socket.io server initialized');
+  /**
+   * Helper function to handle leaving an interview
+   */
+  function handleLeaveInterview(socket, sessionId) {
+    if (!sessionId) return;
+
+    console.log(`Socket ${socket.id} leaving interview session: ${sessionId}`);
+
+    // Leave the room
+    socket.leave(`interview-${sessionId}`);
+
+    // Remove from tracking
+    const session = interviewSessions.get(sessionId);
+    if (session) {
+      session.delete(socket.id);
+      
+      // If session is empty, clean it up
+      if (session.size === 0) {
+        interviewSessions.delete(sessionId);
+        console.log(`Session ${sessionId} is now empty and cleaned up`);
+      } else {
+        // Update active users count for remaining participants
+        io.to(`interview-${sessionId}`).emit('active-users', { count: session.size });
+      }
+    }
+
+    interviewUserSockets.delete(socket.id);
+  }
+
+  console.log('🚀 Socket.io server initialized with interview support');
 };
 
 module.exports = initializeSocket;

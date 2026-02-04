@@ -5,7 +5,6 @@ const redisClient = require('../config/redis');
 const userMiddleware = async (req, res, next) => {
   try {
     const { token } = req.cookies;
-        console.log("Cookies:", req.cookies);
 
     if (!token) {
       return res.status(401).json({
@@ -51,3 +50,4 @@ const userMiddleware = async (req, res, next) => {
 };
 
 module.exports = userMiddleware;
+module.exports.verifyToken = userMiddleware; // Add this line

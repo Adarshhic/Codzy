@@ -17,7 +17,7 @@ const AdminDelete = () => {
       
       const { data } = await axiosClient.get('/problem/getAllProblem');
       
-      console.log('getAllProblem response:', data); // Debug log
+  
       
       // Handle different response formats
       if (Array.isArray(data)) {

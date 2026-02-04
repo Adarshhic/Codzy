@@ -17,6 +17,8 @@ import LiveSession from "./pages/LiveSession"; // ⭐ NEW
 import { Toaster } from 'react-hot-toast'; // ⭐ NEW
 import LandingPage from "./pages/LandingPage.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import InterviewDashboard from './pages/InterviewDashboard';
+import InterviewSessionPage from './pages/InterviewSessionPage';
 function App() {
   const dispatch = useDispatch();
   const { isAuthenticated, user, loading } = useSelector((state) => state.auth);
@@ -130,6 +132,8 @@ function App() {
           path="/study-groups/:groupId/session/:sessionId" 
           element={isAuthenticated ? <LiveSession /> : <Navigate to="/login" replace />}
         />
+        <Route path="/interview/dashboard" element={<InterviewDashboard />} />
+        <Route path="/interview/session/:id" element={<InterviewSessionPage />} />
       </Routes>
     </>
   );

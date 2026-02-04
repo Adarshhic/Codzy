@@ -26,5 +26,5 @@ It allows users to solve coding challenges, submit solutions in multiple languag
 
 ---
 
-## 📁 Project Structure
+
 

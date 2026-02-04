@@ -14,13 +14,6 @@ cloudinary.config({
 
 const generateUploadSignature = async (req, res) => {
   try {
-
-    // Temporary debug log
-    console.log('Cloudinary Config:', {
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret_exists: !!process.env.CLOUDINARY_API_SECRET
-    });
     
     const { problemId } = req.params;
     
