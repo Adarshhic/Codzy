@@ -12,7 +12,7 @@ import '@stream-io/video-react-sdk/dist/css/styles.css';
 const InterviewSessionPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useSelector((state) => state.auth); // Get user from Redux
+  const { user } = useSelector((state) => state.auth);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,6 +21,7 @@ const InterviewSessionPage = () => {
   const [call, setCall] = useState(null);
   const [code, setCode] = useState('');
   const [language, setLanguage] = useState('javascript');
+  const [streamAvailable, setStreamAvailable] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -38,29 +39,45 @@ const InterviewSessionPage = () => {
       console.log('Session loaded:', sessionResponse.session);
       setSession(sessionResponse.session);
 
-      // Get Stream token
-      const tokenResponse = await getStreamToken();
-      const token = tokenResponse.token;
-      const userId = tokenResponse.userId || user._id || user.id;
+      // Try to initialize Stream (video/chat) - but don't fail if it doesn't work
+      try {
+        // Get Stream token
+        const tokenResponse = await getStreamToken();
+        const token = tokenResponse.token;
+        const userId = tokenResponse.userId || user._id || user.id;
 
-      console.log('Initializing Stream with userId:', userId);
+        console.log('Initializing Stream with userId:', userId);
 
-      // Initialize Stream clients
-      const { videoClient, chatClient } = await initializeStreamClients(
-        userId.toString(), 
-        user.FirstName || user.firstName || 'User',
-        token
-      );
-      
-      setVideoClient(videoClient);
-      setChatClient(chatClient);
+        // Initialize Stream clients
+        const { videoClient, chatClient } = await initializeStreamClients(
+          userId.toString(), 
+          user.FirstName || user.firstName || 'User',
+          token
+        );
+        
+        setVideoClient(videoClient);
+        setChatClient(chatClient);
 
-      // Join the video call
-      const videoCall = videoClient.call('default', sessionResponse.session.callId);
-      await videoCall.join({ create: false }); // Don't create, just join
-      setCall(videoCall);
+        // Try to join the video call
+        const videoCall = videoClient.call('default', sessionResponse.session.callId);
+        
+        // FIXED: Use getOrCreate with create: true to handle missing calls
+        try {
+          await videoCall.join({ create: true }); // Create if doesn't exist
+          setCall(videoCall);
+          setStreamAvailable(true);
+          console.log('✅ Successfully joined video call');
+        } catch (joinError) {
+          console.warn('⚠️ Could not join video call:', joinError.message);
+          console.log('📝 Continuing without video/chat features');
+          setStreamAvailable(false);
+        }
+      } catch (streamError) {
+        console.warn('⚠️ Stream.io not available:', streamError.message);
+        console.log('📝 Interview will continue without video/chat features');
+        setStreamAvailable(false);
+      }
 
-      console.log('Successfully joined video call');
       setLoading(false);
     } catch (error) {
       console.error('Error initializing session:', error);
@@ -74,6 +91,9 @@ const InterviewSessionPage = () => {
       const response = await joinInterviewSession(id);
       setSession(response.session);
       console.log('Joined session as candidate');
+      
+      // Refresh to initialize Stream with updated session
+      window.location.reload();
     } catch (error) {
       console.error('Error joining session:', error);
       alert(error.response?.data?.message || 'Failed to join session');
@@ -93,10 +113,18 @@ const InterviewSessionPage = () => {
       
       // Cleanup
       if (call) {
-        await call.leave();
+        try {
+          await call.leave();
+        } catch (e) {
+          console.warn('Error leaving call:', e);
+        }
       }
       if (chatClient) {
-        await chatClient.disconnectUser();
+        try {
+          await chatClient.disconnectUser();
+        } catch (e) {
+          console.warn('Error disconnecting chat:', e);
+        }
       }
       
       navigate('/interview/dashboard');
@@ -106,8 +134,14 @@ const InterviewSessionPage = () => {
     }
   };
 
-  const isInterviewer = session && user && session.interviewer?._id === user._id;
-  const isCandidate = session && user && session.candidate?._id === user._id;
+  const isInterviewer = session && user && (
+    session.interviewer?._id === user._id || 
+    session.interviewer?._id === user.id
+  );
+  const isCandidate = session && user && (
+    session.candidate?._id === user._id || 
+    session.candidate?._id === user.id
+  );
 
   if (loading) {
     return (
@@ -177,6 +211,14 @@ const InterviewSessionPage = () => {
               }`}>
                 {session.difficulty?.toUpperCase()}
               </span>
+              {!streamAvailable && (
+                <>
+                  <span>•</span>
+                  <span className="px-2 py-0.5 rounded text-xs bg-orange-500/20 text-orange-400">
+                    Code Only Mode
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -212,59 +254,75 @@ const InterviewSessionPage = () => {
         </div>
       </div>
 
+      {/* Warning Banner if Stream not available */}
+      {!streamAvailable && (
+        <div className="bg-orange-500/10 border-b border-orange-500/50 px-4 py-2">
+          <div className="flex items-center gap-2 text-orange-400 text-sm">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>
+              <strong>Code Only Mode:</strong> Video and chat features are unavailable. You can still collaborate on code in real-time.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Code Editor */}
-        <div className="w-1/2 border-r border-gray-700">
+        {/* Full Width Code Editor (when no video) OR Left Panel */}
+        <div className={`${streamAvailable ? 'w-1/2 border-r' : 'w-full'} border-gray-700`}>
           <CodeEditor
             code={code}
             onChange={setCode}
             language={language}
             onLanguageChange={setLanguage}
             sessionId={id}
-            socketUrl={import.meta.env.VITE_API_URL || 'http://localhost:5000'}
+            socketUrl={import.meta.env.VITE_API_URL || 'http://localhost:3000'}
             enableCollaboration={true}
             showControls={true}
             readOnly={false}
           />
         </div>
 
-        {/* Right Panel - Video & Chat */}
-        <div className="w-1/2 flex flex-col bg-gray-800">
-          {/* Video Call */}
-          <div className="h-2/3 border-b border-gray-700">
-            {videoClient && call ? (
-              <StreamVideo client={videoClient}>
-                <StreamCall call={call}>
-                  <VideoCallUI />
-                </StreamCall>
-              </StreamVideo>
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-400">
-                <div className="text-center">
-                  <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                  <p>Initializing video...</p>
+        {/* Right Panel - Video & Chat (only if Stream available) */}
+        {streamAvailable && (
+          <div className="w-1/2 flex flex-col bg-gray-800">
+            {/* Video Call */}
+            <div className="h-2/3 border-b border-gray-700">
+              {videoClient && call ? (
+                <StreamVideo client={videoClient}>
+                  <StreamCall call={call}>
+                    <VideoCallUI />
+                  </StreamCall>
+                </StreamVideo>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    <p>Initializing video...</p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Chat Panel */}
-          <div className="h-1/3">
-            {chatClient && session.callId ? (
-              <ChatPanel 
-                chatClient={chatClient} 
-                channelId={session.callId} 
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-400 bg-gray-900">
-                <p>Loading chat...</p>
-              </div>
-            )}
+            {/* Chat Panel */}
+            <div className="h-1/3">
+              {chatClient && session.callId ? (
+                <ChatPanel 
+                  chatClient={chatClient} 
+                  channelId={session.callId} 
+                />
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400 bg-gray-900">
+                  <p>Loading chat...</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
