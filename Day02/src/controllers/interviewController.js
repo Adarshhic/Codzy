@@ -6,7 +6,7 @@ const { streamClient, chatClient } = require('../config/stream');
 exports.createInterviewSession = async (req, res) => {
   try {
     const { problemId, difficulty } = req.body;
-    const interviewerId = req.user.userId;
+    const interviewerId = req.user._id;  // FIXED: Changed from req.user.userId
 
     if (!problemId || !difficulty) {
       return res.status(400).json({ 
@@ -35,26 +35,37 @@ exports.createInterviewSession = async (req, res) => {
       callId
     });
 
-    // Create Stream video call
-    await streamClient.video.call('default', callId).getOrCreate({
-      data: {
-        created_by_id: req.user.userId.toString(),
-        custom: { 
-          problemId: problemId.toString(), 
-          difficulty, 
-          sessionId: session._id.toString() 
-        },
-      },
-    });
+    // ✅ SAFE: Only create Stream resources if client is initialized
+    if (streamClient && chatClient) {
+      try {
+        // Create Stream video call
+        await streamClient.video.call('default', callId).getOrCreate({
+          data: {
+            created_by_id: req.user._id.toString(),
+            custom: { 
+              problemId: problemId.toString(), 
+              difficulty, 
+              sessionId: session._id.toString() 
+            },
+          },
+        });
 
-    // Create Stream chat channel
-    const channel = chatClient.channel('messaging', callId, {
-      name: `Interview: ${problem.title}`,
-      created_by_id: req.user.userId.toString(),
-      members: [req.user.userId.toString()],
-    });
+        // Create Stream chat channel
+        const channel = chatClient.channel('messaging', callId, {
+          name: `Interview: ${problem.title}`,
+          created_by_id: req.user._id.toString(),
+          members: [req.user._id.toString()],
+        });
 
-    await channel.create();
+        await channel.create();
+        console.log('✅ Stream video call and chat created');
+      } catch (streamError) {
+        console.error('⚠️ Stream.io error (non-fatal):', streamError);
+        // Continue without video/chat features - session still created
+      }
+    } else {
+      console.warn('⚠️ Stream.io not configured - session created without video/chat features');
+    }
 
     // Populate session data
     await session.populate('problem interviewer', 'title difficulty name email FirstName');
@@ -103,7 +114,7 @@ exports.getActiveInterviewSessions = async (req, res) => {
 // Get user's interview sessions (both as interviewer and candidate)
 exports.getMyInterviewSessions = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id;  // FIXED: Changed from req.user.userId
 
     const sessions = await InterviewSession.find({
       $or: [
@@ -164,7 +175,7 @@ exports.getInterviewSessionById = async (req, res) => {
 exports.joinInterviewSession = async (req, res) => {
   try {
     const { id } = req.params;
-    const candidateId = req.user.userId;
+    const candidateId = req.user._id;  // FIXED: Changed from req.user.userId
 
     const session = await InterviewSession.findById(id);
 
@@ -202,9 +213,16 @@ exports.joinInterviewSession = async (req, res) => {
     session.startedAt = new Date();
     await session.save();
 
-    // Add candidate to Stream chat channel
-    const channel = chatClient.channel('messaging', session.callId);
-    await channel.addMembers([candidateId.toString()]);
+    // ✅ SAFE: Add candidate to Stream chat channel if configured
+    if (chatClient) {
+      try {
+        const channel = chatClient.channel('messaging', session.callId);
+        await channel.addMembers([candidateId.toString()]);
+        console.log('✅ Candidate added to Stream chat');
+      } catch (streamError) {
+        console.error('⚠️ Stream chat error (non-fatal):', streamError);
+      }
+    }
 
     await session.populate('interviewer candidate', 'name email FirstName');
     await session.populate('problem', 'title difficulty');
@@ -228,7 +246,7 @@ exports.joinInterviewSession = async (req, res) => {
 exports.endInterviewSession = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id;  // FIXED: Changed from req.user.userId
     const { notes, rating, codeSnapshot, language } = req.body;
 
     const session = await InterviewSession.findById(id);
@@ -264,20 +282,25 @@ exports.endInterviewSession = async (req, res) => {
     if (language) session.language = language;
     await session.save();
 
-    // Delete Stream video call
-    try {
-      const call = streamClient.video.call('default', session.callId);
-      await call.delete({ hard: true });
-    } catch (err) {
-      console.error('Error deleting Stream call:', err);
+    // ✅ SAFE: Delete Stream resources if configured
+    if (streamClient) {
+      try {
+        const call = streamClient.video.call('default', session.callId);
+        await call.delete({ hard: true });
+        console.log('✅ Stream video call deleted');
+      } catch (err) {
+        console.error('⚠️ Error deleting Stream call (non-fatal):', err);
+      }
     }
 
-    // Delete Stream chat channel
-    try {
-      const channel = chatClient.channel('messaging', session.callId);
-      await channel.delete();
-    } catch (err) {
-      console.error('Error deleting Stream channel:', err);
+    if (chatClient) {
+      try {
+        const channel = chatClient.channel('messaging', session.callId);
+        await channel.delete();
+        console.log('✅ Stream chat channel deleted');
+      } catch (err) {
+        console.error('⚠️ Error deleting Stream channel (non-fatal):', err);
+      }
     }
 
     res.status(200).json({ 
@@ -298,16 +321,23 @@ exports.endInterviewSession = async (req, res) => {
 // Generate Stream token for authentication
 exports.generateStreamToken = async (req, res) => {
   try {
-    const userId = req.user.userId.toString();
+    const userId = req.user._id.toString();  // FIXED: Changed from req.user.userId.toString()
     
+    // ✅ SAFE: Only generate token if Stream is configured
+    if (!streamClient) {
+      return res.status(503).json({
+        success: false,
+        message: 'Stream.io is not configured. Video/chat features unavailable.'
+      });
+    }
+
     // Generate token for Stream SDK
     const token = streamClient.createToken(userId);
     
-    // FIXED: Return userId along with token
     res.status(200).json({ 
       success: true, 
       token,
-      userId: userId  // ✅ Frontend needs this
+      userId: userId  // Frontend needs this for Stream authentication
     });
   } catch (error) {
     console.error('Error generating Stream token:', error);
