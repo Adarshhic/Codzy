@@ -3,9 +3,14 @@ import { Pause, Play } from 'lucide-react';
 
 
 
+const getOptimizedVideoUrl = (url) => {
+  if (!url) return url;
+  return url.replace('/upload/', '/upload/f_auto,q_auto/');
+};
+
 const Editorial = ({ secureUrl, thumbnailUrl, duration }) => {
 
-
+  const optimizedUrl = getOptimizedVideoUrl(secureUrl);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -29,7 +34,7 @@ const Editorial = ({ secureUrl, thumbnailUrl, duration }) => {
     }
   };
 
-  // Update current time during playback
+
   useEffect(() => {
     const video = videoRef.current;
     
@@ -52,19 +57,20 @@ const Editorial = ({ secureUrl, thumbnailUrl, duration }) => {
       {/* Video Element */}
       <video
         ref={videoRef}
-        src={secureUrl}
+        src={optimizedUrl}
+        preload="metadata"
         poster={thumbnailUrl}
         onClick={togglePlayPause}
         className="w-full aspect-video bg-black cursor-pointer"
       />
       
-      {/* Video Controls Overlay */}
+
       <div 
         className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4 transition-opacity ${
           isHovering || !isPlaying ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        {/* Play/Pause Button */}
+   
         <button
           onClick={togglePlayPause}
           className="btn btn-circle btn-primary mr-3"
@@ -77,7 +83,7 @@ const Editorial = ({ secureUrl, thumbnailUrl, duration }) => {
           )}
         </button>
         
-        {/* Progress Bar */}
+  
         <div className="flex items-center w-full mt-2">
           <span className="text-white text-sm mr-2">
             {formatTime(currentTime)}
