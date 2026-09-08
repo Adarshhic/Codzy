@@ -53,16 +53,13 @@ function Homepage() {
 
   const handleLogout = async () => {
     try {
-      await axiosClient.post('/auth/logout');
+      await axiosClient.post('/user/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
       dispatch(logoutUser());
       setSolvedProblems([]);
       setProblems([]);
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      navigate('/');
-    } catch (error) {
-      console.error('Logout error:', error);
-      dispatch(logoutUser());
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       navigate('/');

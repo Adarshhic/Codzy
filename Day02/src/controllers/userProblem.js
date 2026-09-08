@@ -217,9 +217,10 @@ const getProblemById = async (req, res) => {
 const getAllProblem = async (req, res) => {
   try {
     // 1️⃣ Fetch all problems from DB
-    const problems = await Problem.find({}).select('_id title difficulty tags');;
-       if(problems.length==0)
-    return res.status(404).send("Problem is Missing");
+    const problems = await Problem.find({}).select('_id title difficulty tags');
+    if (!problems || problems.length === 0) {
+      return res.status(200).json({ problems: [] });
+    }
 
     // 2️⃣ Map to hide hiddenTestCases from normal users
     const responseProblems = problems.map(problem => ({

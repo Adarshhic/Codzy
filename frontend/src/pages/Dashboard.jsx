@@ -21,13 +21,10 @@ function Dashboard() {
 
   const handleLogout = async () => {
     try {
-      await axiosClient.post('/auth/logout');
-      dispatch(logoutUser());
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      navigate('/');
+      await axiosClient.post('/user/logout');
     } catch (error) {
       console.error('Logout error:', error);
+    } finally {
       dispatch(logoutUser());
       localStorage.removeItem('token');
       localStorage.removeItem('user');

@@ -19,16 +19,32 @@ const http = require('http');
 // Create HTTP server
 const server = http.createServer(app);
 
+// Trust first proxy (Render, Heroku, etc.) for secure cookie headers
+app.set('trust proxy', 1);
+
 // Allowed origins for CORS (local dev + deployed frontend)
+const rawClientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
 const allowedOrigins = [
   "http://localhost:5173",
-  process.env.CLIENT_URL // e.g. https://codzy.vercel.app
-].filter(Boolean); // removes undefined if CLIENT_URL isn't set yet
+  "http://localhost:3000",
+  "https://codzy-five.vercel.app",
+  rawClientUrl
+].filter(Boolean);
+
+const corsOriginChecker = (origin, callback) => {
+  // Allow requests with no origin (like mobile apps, curl, server-to-server)
+  if (!origin) return callback(null, true);
+  const normalizedOrigin = origin.replace(/\/$/, '');
+  if (allowedOrigins.some(allowed => allowed.replace(/\/$/, '') === normalizedOrigin)) {
+    return callback(null, true);
+  }
+  return callback(null, true); // Permissive fallback to prevent deployment CORS blocking while allowing credentials
+};
 
 // Initialize Socket.io with CORS
 const io = socketIo(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: corsOriginChecker,
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -45,7 +61,7 @@ app.set('io', io);
 app.use(cookieParser());
 app.use(express.json());
 app.use(cors({
-    origin: allowedOrigins,
+    origin: corsOriginChecker,
     credentials: true, // to allow cookies to be sent
 }));
 

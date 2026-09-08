@@ -22,7 +22,7 @@ const CodeEditor = ({
   language,
   onLanguageChange,
   sessionId,
-  socketUrl = 'http://localhost:5000',
+  socketUrl = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000',
   readOnly = false,
   showControls = true,
   height = '100%',

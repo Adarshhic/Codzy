@@ -12,6 +12,9 @@ router.get('/active', verifyToken, interviewController.getActiveInterviewSession
 // Get user's interview sessions
 router.get('/my-sessions', verifyToken, interviewController.getMyInterviewSessions);
 
+// Generate Stream token (MUST be defined before /:id to prevent route collision)
+router.get('/auth/stream-token', verifyToken, interviewController.generateStreamToken);
+
 // Get specific interview session
 router.get('/:id', verifyToken, interviewController.getInterviewSessionById);
 
@@ -20,8 +23,5 @@ router.post('/:id/join', verifyToken, interviewController.joinInterviewSession);
 
 // End an interview session
 router.post('/:id/end', verifyToken, interviewController.endInterviewSession);
-
-// Generate Stream token
-router.get('/auth/stream-token', verifyToken, interviewController.generateStreamToken);
 
 module.exports = router;

@@ -39,11 +39,16 @@ const register = async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    // 7. Set secure cookie
-    res.cookie('token', token, {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
       maxAge: 60 * 60 * 1000,
-      httpOnly: true
-    });
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax'
+    };
+
+    // 7. Set secure cookie
+    res.cookie('token', token, cookieOptions);
 
     // 8. Send safe response
     res.status(201).json({
@@ -101,11 +106,16 @@ const login = async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    // 5. Set secure cookie
-    res.cookie('token', token, {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
       maxAge: 60 * 60 * 1000,
-      httpOnly: true
-    });
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax'
+    };
+
+    // 5. Set secure cookie
+    res.cookie('token', token, cookieOptions);
 
     // 6. Send safe response
     res.status(200).json({
@@ -125,23 +135,34 @@ const login = async (req, res) => {
 
 
 // Logout User
-const logout = async(req,res)=>{ 
-    try{
-     const {token} = req.cookies;
-     const payload = jwt.decode(token);   
-     await redisClient.set(`token:${token}`, 'blocked');
-        await redisClient.expireAt(`token:${token}`, payload.exp);
-
-        res.cookie('token', 'null',{expires: new Date(Date.now() + 1000)});
-        res.status(200).send({message:'Logout Successful'});
-    
+const logout = async (req, res) => { 
+  try {
+    const { token } = req.cookies;
+    if (token) {
+      try {
+        const payload = jwt.decode(token);   
+        await redisClient.set(`token:${token}`, 'blocked');
+        if (payload?.exp) {
+          await redisClient.expireAt(`token:${token}`, payload.exp);
+        }
+      } catch (redisErr) {
+        console.error('Redis logout error:', redisErr.message);
+      }
     }
-    catch(err){
-        res.status(500).send({message:err.message});
-    }   };
 
-    // Admin Register User
+    const isProd = process.env.NODE_ENV === 'production';
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax'
+    });
+    return res.status(200).json({ message: 'Logout Successful' });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
 
+// Admin Register User
 const adminRegister = async (req, res) => {
   try {
     // 1. Validate input
@@ -171,11 +192,16 @@ const adminRegister = async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    // 7. Set cookie
-    res.cookie('token', token, {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
       maxAge: 60 * 60 * 1000,
-      httpOnly: true
-    });
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax'
+    };
+
+    // 7. Set cookie
+    res.cookie('token', token, cookieOptions);
 
     res.status(201).json({
       message: 'Admin Registered Successfully',
