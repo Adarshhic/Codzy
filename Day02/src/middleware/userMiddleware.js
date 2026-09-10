@@ -4,7 +4,8 @@ const redisClient = require('../config/redis');
 
 const userMiddleware = async (req, res, next) => {
   try {
-    const { token } = req.cookies;
+    const authHeader = req.headers.authorization;
+    const token = req.cookies?.token || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader);
 
     if (!token) {
       return res.status(401).json({
@@ -12,12 +13,18 @@ const userMiddleware = async (req, res, next) => {
       });
     }
 
-    // 1️⃣ Check Redis blacklist FIRST
-    const isBlocked = await redisClient.exists(`token:${token}`);
-    if (isBlocked) {
-      return res.status(401).json({
-        message: 'Unauthorized: Token is blocked'
-      });
+    // 1️⃣ Check Redis blacklist (with fallback if Redis is unreachable)
+    try {
+      if (redisClient.isOpen) {
+        const isBlocked = await redisClient.exists(`token:${token}`);
+        if (isBlocked) {
+          return res.status(401).json({
+            message: 'Unauthorized: Token is blocked'
+          });
+        }
+      }
+    } catch (redisErr) {
+      console.warn('Redis check error in userMiddleware:', redisErr.message);
     }
 
     // 2️⃣ Verify JWT
@@ -44,10 +51,11 @@ const userMiddleware = async (req, res, next) => {
     next();
   } catch (err) {
     return res.status(401).json({
-      message: 'Unauthorized: ' + err.message
+      message: 'Unauthorized: ' + (err.message || 'Invalid token')
     });
   }
 };
 
 module.exports = userMiddleware;
-module.exports.verifyToken = userMiddleware; // Add this line
+module.exports.verifyToken = userMiddleware;
+

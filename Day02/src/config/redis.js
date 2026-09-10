@@ -13,8 +13,12 @@ const redisOptions = process.env.REDIS_URL
 
 const redisClient = createClient(redisOptions);
 
+redisClient.on('connect', () => {
+  console.log('✅ Connected to Redis');
+});
+
 redisClient.on('error', (err) => {
-  console.error('Redis Client Error:', err.message);
+  console.error('⚠️ Redis Client Error:', err.message || err);
 });
 
 module.exports = redisClient;

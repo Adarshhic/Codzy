@@ -5,8 +5,17 @@ const jwt = require('jsonwebtoken');
 const redisClient = require('../config/redis');
 const Submission = require('../models/Submission');
 
-// Register User
+const getCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    httpOnly: true,
+    secure: isProduction,             // HTTPS required in production for SameSite=None
+    sameSite: isProduction ? 'none' : 'lax'
+  };
+};
 
+// Register User
 const register = async (req, res) => {
  try {
     // 1. Validate input
@@ -36,23 +45,16 @@ const register = async (req, res) => {
     const token = jwt.sign(
       { _id: user._id, EmailId: user.EmailId , role: user.role},
       process.env.JWT_KEY,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
-    const isProd = process.env.NODE_ENV === 'production';
-    const cookieOptions = {
-      maxAge: 60 * 60 * 1000,
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? 'none' : 'lax'
-    };
-
     // 7. Set secure cookie
-    res.cookie('token', token, cookieOptions);
+    res.cookie('token', token, getCookieOptions());
 
     // 8. Send safe response
     res.status(201).json({
       message: 'User Registered Successfully',
+      token,
       user: {
          _id: user._id,
         FirstName: user.FirstName,
@@ -103,23 +105,16 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { _id: user._id, EmailId: user.EmailId , role: user.role },
       process.env.JWT_KEY,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
-    const isProd = process.env.NODE_ENV === 'production';
-    const cookieOptions = {
-      maxAge: 60 * 60 * 1000,
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? 'none' : 'lax'
-    };
-
     // 5. Set secure cookie
-    res.cookie('token', token, cookieOptions);
+    res.cookie('token', token, getCookieOptions());
 
     // 6. Send safe response
     res.status(200).json({
       message: 'Login Successful',
+      token,
       user: {
         _id: user._id,
         FirstName: user.FirstName,
@@ -133,33 +128,33 @@ const login = async (req, res) => {
   }
 };
 
-
 // Logout User
-const logout = async (req, res) => { 
-  try {
-    const { token } = req.cookies;
-    if (token) {
-      try {
-        const payload = jwt.decode(token);   
-        await redisClient.set(`token:${token}`, 'blocked');
-        if (payload?.exp) {
-          await redisClient.expireAt(`token:${token}`, payload.exp);
+const logout = async(req,res)=>{ 
+    try{
+      const token = req.cookies?.token || (req.headers?.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : null);
+      if (token) {
+        try {
+          const payload = jwt.decode(token);
+          if (payload && payload.exp) {
+            await redisClient.set(`token:${token}`, 'blocked');
+            await redisClient.expireAt(`token:${token}`, payload.exp);
+          }
+        } catch (redisErr) {
+          console.warn('Redis logout blacklist warning:', redisErr.message);
         }
-      } catch (redisErr) {
-        console.error('Redis logout error:', redisErr.message);
       }
-    }
 
-    const isProd = process.env.NODE_ENV === 'production';
-    res.clearCookie('token', {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? 'none' : 'lax'
-    });
-    return res.status(200).json({ message: 'Logout Successful' });
-  } catch (err) {
-    return res.status(500).json({ message: err.message });
-  }
+      const isProduction = process.env.NODE_ENV === 'production';
+      res.clearCookie('token', {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax'
+      });
+      res.status(200).json({message:'Logout Successful'});
+    }
+    catch(err){
+        res.status(500).json({message:err.message});
+    }   
 };
 
 // Admin Register User
@@ -189,22 +184,15 @@ const adminRegister = async (req, res) => {
     const token = jwt.sign(
       { _id: user._id, EmailId: user.EmailId, role: user.role },
       process.env.JWT_KEY,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
-    const isProd = process.env.NODE_ENV === 'production';
-    const cookieOptions = {
-      maxAge: 60 * 60 * 1000,
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? 'none' : 'lax'
-    };
-
     // 7. Set cookie
-    res.cookie('token', token, cookieOptions);
+    res.cookie('token', token, getCookieOptions());
 
     res.status(201).json({
       message: 'Admin Registered Successfully',
+      token,
       user: {
         _id: user._id,
         EmailId: user.EmailId,

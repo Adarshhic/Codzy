@@ -4,40 +4,56 @@ const redisClient = require('../config/redis');
 
 const adminMiddleware = async (req, res, next) => {
   try {
-    
-  
-    const { token } = req.cookies;
+    const authHeader = req.headers.authorization;
+    const token = req.cookies?.token || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader);
 
-    if (!token)
-      throw new Error("Token is not present");
+    if (!token) {
+      return res.status(401).json({
+        message: 'Unauthorized: Token is not present'
+      });
+    }
+
+    try {
+      if (redisClient.isOpen) {
+        const isBlocked = await redisClient.exists(`token:${token}`);
+        if (isBlocked) {
+          return res.status(401).json({
+            message: 'Unauthorized: Token is blocked'
+          });
+        }
+      }
+    } catch (redisErr) {
+      console.warn('Redis check error in adminMiddleware:', redisErr.message);
+    }
 
     const payload = jwt.verify(token, process.env.JWT_KEY);
     const { _id } = payload;
 
-    if (!_id)
-      throw new Error("Invalid token");
+    if (!_id) {
+      return res.status(401).json({
+        message: 'Unauthorized: Invalid token'
+      });
+    }
 
-    const result = await User.findById(_id);
-    
+    if (payload.role !== 'Admin') {
+      return res.status(403).json({
+        message: 'Forbidden: Admin access only'
+      });
+    }
 
+    const result = await User.findById(_id).select('-password');
+    if (!result) {
+      return res.status(401).json({
+        message: "Unauthorized: User doesn't exist"
+      });
+    }
 
-    if (payload.role !== 'Admin')
-      throw new Error("Admin access only");
-
-    if (!result)
-      throw new Error("User doesn't exist");
-
-    const isBlocked = await redisClient.exists(`token:${token}`);
-    if (isBlocked)
-      throw new Error("Token is blocked");
-
-    // 🔥 MOST IMPORTANT FIX
     req.user = result;
 
     next();
   } catch (err) {
     return res.status(401).json({
-      message: 'Unauthorized: ' + err.message
+      message: 'Unauthorized: ' + (err.message || 'Invalid token')
     });
   }
 };

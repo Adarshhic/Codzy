@@ -250,7 +250,7 @@ function Signup() {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes rotate-y {
           0% { transform: rotateY(0deg); }
           100% { transform: rotateY(360deg); }
