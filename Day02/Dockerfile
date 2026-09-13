@@ -3,15 +3,15 @@ FROM node:20-alpine
 # Set working directory
 WORKDIR /app
 
-# Copy package files and install production dependencies
+# Copy package files and prisma schema first for caching & postinstall hook
 COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install dependencies (runs postinstall prisma generate with schema present)
 RUN npm ci --only=production
 
-# Copy application source code
+# Copy remaining application source code
 COPY . .
-
-# Generate Prisma Client for PostgreSQL
-RUN npx prisma generate
 
 # Set default environment variables
 ENV NODE_ENV=production
