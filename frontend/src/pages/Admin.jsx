@@ -1,159 +1,104 @@
-import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Video } from 'lucide-react';
-import { NavLink } from 'react-router';
+import { Plus, Edit, Trash2, Video, ShieldCheck, ArrowRight, Activity, Database, Server } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router';
+import Navbar from '../components/Navbar';
 
 function Admin() {
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
+  const navigate = useNavigate();
 
   const adminOptions = [
     {
       id: 'create',
-      title: 'CREATE PROBLEM',
-      description: 'Add a new coding problem to the platform',
+      title: 'Create Problem',
+      description: 'Add a new challenge to the library with test cases and starter code templates.',
       icon: Plus,
-      gradient: 'from-emerald-500 to-teal-600',
-      borderColor: 'emerald-500',
+      badge: 'Creation',
+      gradient: 'from-emerald-500/20 to-teal-500/20',
+      iconColor: 'text-emerald-400',
+      borderColor: 'group-hover:border-emerald-500/40',
       route: '/admin/create'
     },
     {
-      id: 'update',
-      title: 'UPDATE PROBLEM',
-      description: 'Edit existing problems and their details',
-      icon: Edit,
-      gradient: 'from-amber-500 to-orange-600',
-      borderColor: 'amber-500',
-      route: '/admin/update'
-    },
-    {
       id: 'delete',
-      title: 'DELETE PROBLEM',
-      description: 'Remove problems from the platform',
+      title: 'Problem Management',
+      description: 'Review existing challenges, inspect test sets, and delete outdated problems.',
       icon: Trash2,
-      gradient: 'from-rose-500 to-red-600',
-      borderColor: 'rose-500',
+      badge: 'Maintenance',
+      gradient: 'from-rose-500/20 to-red-500/20',
+      iconColor: 'text-rose-400',
+      borderColor: 'group-hover:border-rose-500/40',
       route: '/admin/delete'
     },
     {
       id: 'video',
-      title: 'VIDEO MANAGEMENT',
-      description: 'Upload and delete problem solution videos',
+      title: 'Video Solutions',
+      description: 'Upload video explanations to Cloudinary and attach them to problem editorials.',
       icon: Video,
-      gradient: 'from-purple-500 to-pink-600',
-      borderColor: 'purple-500',
+      badge: 'Media Content',
+      gradient: 'from-indigo-500/20 to-purple-500/20',
+      iconColor: 'text-indigo-400',
+      borderColor: 'group-hover:border-indigo-500/40',
       route: '/admin/video'
     }
   ];
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-hidden font-['Orbitron',sans-serif] relative">
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        {/* Gradient Mesh */}
-        <div 
-          className="absolute inset-0 opacity-30"
-          style={{
-            background: `radial-gradient(circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(0, 255, 255, 0.15), transparent 50%)`,
-          }}
-        />
-        
-        {/* Grid */}
-        <div 
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(0, 255, 255, 0.3) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(0, 255, 255, 0.3) 1px, transparent 1px)
-            `,
-            backgroundSize: '50px 50px',
-          }}
-        />
+    <div className="min-h-screen bg-[#09090b] text-white flex flex-col antialiased">
+      <Navbar />
 
-        {/* Particles */}
-        {[...Array(30)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 bg-cyan-400 rounded-full animate-float"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 5}s`,
-              animationDuration: `${3 + Math.random() * 4}s`,
-              opacity: Math.random() * 0.5 + 0.3,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Header */}
-      <div className="relative z-50 bg-black/30 backdrop-blur-sm border-b border-red-500/20 px-8 py-12">
-        <div className="container mx-auto text-center">
-          <div className="inline-block px-4 py-2 bg-gradient-to-r from-red-500/20 to-orange-600/20 border border-red-500/50 rounded-full backdrop-blur-sm mb-6 animate-fadeIn">
-            <span className="text-red-400 font-bold text-sm tracking-wider">⚙️ SYSTEM CONTROL</span>
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header Hero */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-zinc-900/90 to-zinc-950/90 border border-white/[0.08] p-6 sm:p-8 backdrop-blur-xl mb-8 shadow-2xl">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-rose-500/10 via-amber-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold">
+                <ShieldCheck size={14} />
+                <span>Superuser Console</span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+                Admin Center
+              </h1>
+              <p className="text-zinc-400 text-sm sm:text-base max-w-xl">
+                Manage algorithm challenges, test cases, editorial video recordings, and platform content.
+              </p>
+            </div>
           </div>
-          
-          <h1 className="text-6xl font-black mb-4 animate-fadeIn" style={{animationDelay: '0.1s'}}>
-            <span className="bg-gradient-to-r from-red-400 via-orange-500 to-yellow-500 bg-clip-text text-transparent">
-              ADMIN PANEL
-            </span>
-          </h1>
-          
-          <p className="text-gray-400 text-xl max-w-2xl mx-auto animate-fadeIn" style={{animationDelay: '0.2s'}}>
-            Manage coding problems and platform content
-          </p>
         </div>
-      </div>
 
-      {/* Admin Options Grid */}
-      <div className="relative container mx-auto px-8 py-16 max-w-7xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {adminOptions.map((option, index) => {
+        {/* Quick Admin Actions Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          {adminOptions.map((option) => {
             const IconComponent = option.icon;
             return (
               <NavLink
                 key={option.id}
                 to={option.route}
-                className="group perspective animate-fadeIn"
-                style={{animationDelay: `${0.1 + index * 0.1}s`}}
+                className="group block"
               >
-                <div className={`relative p-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-sm border border-${option.borderColor}/30 rounded-2xl hover:border-${option.borderColor} shadow-lg hover:shadow-2xl hover:shadow-${option.borderColor}/20 transition-all duration-500 transform-gpu hover:scale-105 card-3d h-full`}>
-                  {/* Glow effect */}
-                  <div className={`absolute inset-0 bg-gradient-to-br from-${option.borderColor}/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity`} />
-                  
-                  <div className="relative z-10 flex flex-col items-center text-center">
-                    {/* Icon */}
-                    <div className={`w-20 h-20 bg-gradient-to-br ${option.gradient} rounded-xl flex items-center justify-center mb-6 shadow-2xl shadow-${option.borderColor}/50 group-hover:scale-110 transition-transform`}>
-                      <IconComponent size={32} className="text-white" />
+                <div className={`p-8 rounded-3xl bg-zinc-900/60 border border-white/[0.08] ${option.borderColor} backdrop-blur-xl transition-all duration-300 transform hover:-translate-y-1 hover:shadow-2xl flex flex-col justify-between h-full`}>
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${option.gradient} border border-white/[0.08] flex items-center justify-center ${option.iconColor}`}>
+                        <IconComponent size={22} />
+                      </div>
+                      <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                        {option.badge}
+                      </span>
                     </div>
-                    
-                    {/* Title */}
-                    <h2 className={`text-xl font-black mb-4 text-white group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:${option.gradient} group-hover:bg-clip-text transition-all`}>
+
+                    <h2 className="text-lg font-bold text-white mb-2 group-hover:text-indigo-300 transition-colors">
                       {option.title}
                     </h2>
                     
-                    {/* Description */}
-                    <p className="text-gray-400 leading-relaxed mb-6 text-sm">
+                    <p className="text-zinc-400 text-xs sm:text-sm leading-relaxed mb-6">
                       {option.description}
                     </p>
+                  </div>
 
-                    {/* Action Button */}
-                    <div className={`flex items-center gap-2 text-${option.borderColor}-400 font-bold text-sm`}>
-                      <span>ACCESS</span>
-                      <svg className="w-5 h-5 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                      </svg>
-                    </div>
-
-                    {/* Glow line at bottom */}
-                    <div className={`mt-6 h-[2px] w-full bg-gradient-to-r from-transparent via-${option.borderColor}-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300 group-hover:text-white transition-colors pt-4 border-t border-zinc-800/60">
+                    <span>Access Console</span>
+                    <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform text-indigo-400" />
                   </div>
                 </div>
               </NavLink>
@@ -161,84 +106,55 @@ function Admin() {
           })}
         </div>
 
-        {/* Back to Dashboard Link */}
-        <div className="text-center mt-16 animate-fadeIn" style={{animationDelay: '0.5s'}}>
-          <NavLink
-            to="/dashboard"
-            className="group inline-flex items-center gap-3 px-8 py-4 bg-gray-900/50 border border-cyan-500/30 rounded-xl text-cyan-400 font-bold hover:bg-cyan-500/10 hover:border-cyan-500 transition-all"
-          >
-            <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            BACK TO DASHBOARD
-          </NavLink>
+        {/* Platform Status Diagnostics */}
+        <div className="p-6 rounded-3xl bg-zinc-900/40 border border-white/[0.08] backdrop-blur-xl">
+          <div className="flex items-center gap-2 mb-4 text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+            <Activity size={14} className="text-emerald-400" />
+            <span>Platform Infrastructure</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                <Database size={18} />
+              </div>
+              <div>
+                <div className="text-xs text-zinc-500 font-medium">Database</div>
+                <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  PostgreSQL Neon
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+                <Server size={18} />
+              </div>
+              <div>
+                <div className="text-xs text-zinc-500 font-medium">Judge0 API</div>
+                <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  CE Connected
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center border border-purple-500/20">
+                <Video size={18} />
+              </div>
+              <div>
+                <div className="text-xs text-zinc-500 font-medium">Media Storage</div>
+                <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Cloudinary Active
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-
-        {/* Stats Section */}
-        <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 animate-fadeIn" style={{animationDelay: '0.6s'}}>
-          <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-sm border border-cyan-500/30 rounded-2xl p-6 text-center">
-            <div className="text-4xl font-black bg-gradient-to-r from-cyan-400 to-purple-600 bg-clip-text text-transparent mb-2">
-              SECURE
-            </div>
-            <div className="text-sm text-gray-400">Admin Access Only</div>
-          </div>
-          
-          <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-sm border border-purple-500/30 rounded-2xl p-6 text-center">
-            <div className="text-4xl font-black bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent mb-2">
-              LIVE
-            </div>
-            <div className="text-sm text-gray-400">Real-time Updates</div>
-          </div>
-          
-          <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-sm border border-pink-500/30 rounded-2xl p-6 text-center">
-            <div className="text-4xl font-black bg-gradient-to-r from-pink-400 to-red-600 bg-clip-text text-transparent mb-2">
-              FAST
-            </div>
-            <div className="text-sm text-gray-400">Instant Operations</div>
-          </div>
-        </div>
-      </div>
-
-      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
-
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
-        }
-
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .animate-float {
-          animation: float 3s ease-in-out infinite;
-        }
-
-        .animate-fadeIn {
-          animation: fadeIn 0.6s ease-out forwards;
-          opacity: 0;
-        }
-
-        .perspective {
-          perspective: 1000px;
-        }
-
-        .card-3d {
-          transition: transform 0.5s ease;
-        }
-
-        .card-3d:hover {
-          transform: rotateY(5deg) rotateX(5deg);
-        }
-      `}</style>
+      </main>
     </div>
   );
 }

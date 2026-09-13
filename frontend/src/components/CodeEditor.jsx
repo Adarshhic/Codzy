@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, Save, Download, Upload, Users } from 'lucide-react';
+import { 
+  Users, Code2, Globe, Sparkles, Check, 
+  Terminal, Shield, Wifi, WifiOff 
+} from 'lucide-react';
 import io from 'socket.io-client';
 
 const LANGUAGE_OPTIONS = [
@@ -12,8 +15,8 @@ const LANGUAGE_OPTIONS = [
 ];
 
 const THEME_OPTIONS = [
-  { value: 'vs-dark', label: 'Dark' },
-  { value: 'light', label: 'Light' },
+  { value: 'vs-dark', label: 'Dark Mode' },
+  { value: 'light', label: 'Light Mode' },
 ];
 
 const CodeEditor = ({
@@ -36,7 +39,6 @@ const CodeEditor = ({
   const [activeUsers, setActiveUsers] = useState(1);
   const isUpdatingFromSocket = useRef(false);
 
-  // Initialize Socket.io connection
   useEffect(() => {
     if (!enableCollaboration || !sessionId) return;
 
@@ -50,28 +52,23 @@ const CodeEditor = ({
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Socket connected for interview:', sessionId);
       setIsConnected(true);
       socket.emit('join-interview', sessionId);
     });
 
     socket.on('disconnect', () => {
-      console.log('Socket disconnected');
       setIsConnected(false);
     });
 
     socket.on('joined-interview', ({ activeUsers }) => {
-      console.log('Joined interview, active users:', activeUsers);
-      setActiveUsers(activeUsers);
+      setActiveUsers(activeUsers || 1);
     });
 
     socket.on('active-users', ({ count }) => {
-      setActiveUsers(count);
+      setActiveUsers(count || 1);
     });
 
-    socket.on('code-update', ({ code: newCode, language: newLanguage, userId }) => {
-      console.log('Received code update from:', userId);
-      
+    socket.on('code-update', ({ code: newCode, language: newLanguage }) => {
       isUpdatingFromSocket.current = true;
       
       if (newCode !== undefined && newCode !== code) {
@@ -136,65 +133,58 @@ const CodeEditor = ({
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-900">
+    <div className="h-full flex flex-col bg-[#1e1e1e] text-zinc-100 overflow-hidden select-none">
       {showControls && (
-        <div className="bg-gray-800 p-3 flex items-center justify-between border-b border-gray-700">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-white text-sm font-medium">Language:</label>
+        <div className="bg-zinc-950/90 border-b border-white/[0.08] px-4 py-2 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            {/* Language Selector */}
+            <div className="flex items-center gap-1.5">
+              <Code2 size={14} className="text-indigo-400" />
               <select
                 value={language}
                 onChange={(e) => handleLanguageChangeLocal(e.target.value)}
                 disabled={readOnly}
-                className="px-3 py-1.5 rounded bg-gray-700 text-white border border-gray-600 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white border border-zinc-800 text-xs font-medium focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer"
               >
                 {LANGUAGE_OPTIONS.map((lang) => (
-                  <option key={lang.value} value={lang.value}>
+                  <option key={lang.value} value={lang.value} className="bg-zinc-900">
                     {lang.label}
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <label className="text-white text-sm font-medium">Theme:</label>
+            {/* Font Size */}
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-zinc-400">
+              <span>Font:</span>
               <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                className="px-3 py-1.5 rounded bg-gray-700 text-white border border-gray-600 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+                className="px-2 py-1 rounded-lg bg-zinc-900 text-white border border-zinc-800 text-xs focus:outline-none cursor-pointer"
               >
-                {THEME_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
+                {[12, 13, 14, 15, 16, 18].map((size) => (
+                  <option key={size} value={size} className="bg-zinc-900">
+                    {size}px
                   </option>
                 ))}
               </select>
             </div>
+          </div>
 
-            <div className="flex items-center gap-2">
-              <label className="text-white text-sm font-medium">Font:</label>
-              <input
-                type="number"
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-                min="10"
-                max="30"
-                className="w-16 px-2 py-1.5 rounded bg-gray-700 text-white border border-gray-600 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
+          <div className="flex items-center gap-3">
             {enableCollaboration && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-gray-700 border border-gray-600">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
-                <Users size={16} className="text-white" />
-                <span className="text-white text-sm font-medium">{activeUsers}</span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-medium text-zinc-300">
+                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`} />
+                <Users size={13} className="text-indigo-400" />
+                <span>{activeUsers} peer{activeUsers !== 1 ? 's' : ''}</span>
               </div>
             )}
           </div>
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden">
+      {/* Monaco Editor */}
+      <div className="flex-1 relative overflow-hidden">
         <Editor
           height={height}
           language={getMonacoLanguage(language)}
@@ -203,8 +193,10 @@ const CodeEditor = ({
           onMount={handleEditorDidMount}
           theme={theme}
           options={{
-            minimap: { enabled: false },
+            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
             fontSize: fontSize,
+            lineHeight: 22,
+            minimap: { enabled: false },
             lineNumbers: 'on',
             scrollBeyondLastLine: false,
             automaticLayout: true,
@@ -214,24 +206,26 @@ const CodeEditor = ({
             formatOnType: true,
             tabSize: 2,
             insertSpaces: true,
+            padding: { top: 12, bottom: 12 }
           }}
         />
       </div>
 
       {showControls && (
-        <div className="bg-gray-800 px-4 py-2 flex items-center justify-between text-xs text-gray-400 border-t border-gray-700">
+        <div className="bg-zinc-950/90 px-4 py-1.5 flex items-center justify-between text-[11px] text-zinc-500 border-t border-white/[0.08] font-mono shrink-0">
           <div className="flex items-center gap-4">
-            <span>Lines: {code.split('\n').length}</span>
-            <span>Characters: {code.length}</span>
+            <span>Ln: {code ? code.split('\n').length : 1}</span>
+            <span>Ch: {code ? code.length : 0}</span>
+            <span>UTF-8</span>
+          </div>
+          <div>
             {enableCollaboration && (
-              <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
-                {isConnected ? '● Live Collaboration' : '● Disconnected'}
+              <span className={`inline-flex items-center gap-1 ${isConnected ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {isConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+                {isConnected ? 'Real-Time Sync' : 'Reconnecting...'}
               </span>
             )}
           </div>
-          {readOnly && (
-            <span className="text-yellow-400">Read-only mode</span>
-          )}
         </div>
       )}
     </div>

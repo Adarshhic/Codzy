@@ -1,11 +1,34 @@
 import { useState, useEffect, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { useParams, NavLink, useNavigate } from 'react-router';
 import Editor from '@monaco-editor/react';
-import { useParams } from 'react-router';
 import axiosClient from "../utils/axiosClient";
 import SubmissionHistory from '../components/SubmissionHistory';
 import ChatAi from '../components/ChatAi';
 import Editorial from '../components/EditorialPage';
+import confetti from 'canvas-confetti';
+import { 
+  ArrowLeft, 
+  Play, 
+  Send, 
+  Clock, 
+  Pause, 
+  RotateCcw, 
+  FileText, 
+  Video, 
+  History, 
+  Bot, 
+  CheckCircle2, 
+  XCircle, 
+  AlertTriangle, 
+  Terminal, 
+  Zap, 
+  Sparkles,
+  ChevronDown,
+  Maximize2,
+  Minimize2,
+  Copy,
+  Check
+} from 'lucide-react';
 
 const langMap = {
   cpp: 'C++',
@@ -14,43 +37,65 @@ const langMap = {
 };
 
 const ProblemPage = () => {
+  const { problemId } = useParams();
+  const navigate = useNavigate();
+  
   const [problem, setProblem] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState('javascript');
   const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  
   const [runResult, setRunResult] = useState(null);
   const [submitResult, setSubmitResult] = useState(null);
   const [activeLeftTab, setActiveLeftTab] = useState('description');
-  const [activeRightTab, setActiveRightTab] = useState('code');
+  const [bottomDrawerOpen, setBottomDrawerOpen] = useState(false);
+  const [bottomTab, setBottomTab] = useState('run'); // 'run' or 'submit'
+  
   const [videoData, setVideoData] = useState(null);
   const [videoLoading, setVideoLoading] = useState(false);
+  
+  // Timer state
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [copiedExampleIndex, setCopiedExampleIndex] = useState(null);
+  
   const editorRef = useRef(null);
-  let {problemId}  = useParams();
 
-  const { handleSubmit } = useForm();
+  // Timer interval
+  useEffect(() => {
+    let interval = null;
+    if (timerRunning) {
+      interval = setInterval(() => {
+        setTimerSeconds(s => s + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [timerRunning]);
+
+  const formatTimer = (totalSeconds) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     const fetchProblem = async () => {
-      setLoading(true);
       try {
+        setLoading(true);
         const response = await axiosClient.get(`/problem/problemById/${problemId}`);
-        console.log('Problem response:', response.data); // Debug log
-        
-        // Handle different response structures
         const problemData = response.data.problem || response.data;
         
-        if (!problemData) {
-          throw new Error('Problem data not found');
-        }
+        if (!problemData) throw new Error('Problem data not found');
         
-        // Find initial code or set empty string
         const initialCode = problemData.startCode?.find(sc => sc.Language === langMap[selectedLanguage])?.initialCode || '';
         
         setProblem(problemData);
         setCode(initialCode);
-        setLoading(false);
       } catch (error) {
         console.error('Error fetching problem:', error);
+      } finally {
         setLoading(false);
       }
     };
@@ -58,20 +103,16 @@ const ProblemPage = () => {
     fetchProblem();
   }, [problemId]);
 
-  // Fetch video data when editorial tab is clicked
+  // Fetch video data when editorial tab is opened
   useEffect(() => {
     const fetchVideoData = async () => {
       if (activeLeftTab === 'editorial' && !videoData && !videoLoading) {
         setVideoLoading(true);
         try {
           const response = await axiosClient.get(`/video/get/${problemId}`);
-          console.log('Video response:', response.data); // Debug log
           setVideoData(response.data.video);
         } catch (error) {
           console.error('Error fetching video:', error);
-          if (error.response?.status === 404) {
-            console.log('No video found for this problem');
-          }
           setVideoData(null);
         } finally {
           setVideoLoading(false);
@@ -82,6 +123,7 @@ const ProblemPage = () => {
     fetchVideoData();
   }, [activeLeftTab, problemId, videoData, videoLoading]);
 
+  // Update initial code when language changes
   useEffect(() => {
     if (problem && problem.startCode) {
       const initialCode = problem.startCode.find(sc => sc.Language === langMap[selectedLanguage])?.initialCode || '';
@@ -89,45 +131,38 @@ const ProblemPage = () => {
     }
   }, [selectedLanguage, problem]);
 
-  const handleEditorChange = (value) => {
-    setCode(value || '');
-  };
-
   const handleEditorDidMount = (editor) => {
     editorRef.current = editor;
   };
 
-  const handleLanguageChange = (language) => {
-    setSelectedLanguage(language);
-  };
-
   const handleRun = async () => {
-    setLoading(true);
+    setRunning(true);
     setRunResult(null);
+    setBottomDrawerOpen(true);
+    setBottomTab('run');
     
     try {
       const response = await axiosClient.post(`/submission/run/${problemId}`, {
         code,
         language: selectedLanguage
       });
-
       setRunResult(response.data);
-      setLoading(false);
-      setActiveRightTab('testcase');
     } catch (error) {
       console.error('Error running code:', error);
       setRunResult({
         success: false,
-        error: 'Internal server error'
+        error: error.response?.data?.message || 'Compilation or runtime error occurred'
       });
-      setLoading(false);
-      setActiveRightTab('testcase');
+    } finally {
+      setRunning(false);
     }
   };
 
   const handleSubmitCode = async () => {
-    setLoading(true);
+    setSubmitting(true);
     setSubmitResult(null);
+    setBottomDrawerOpen(true);
+    setBottomTab('submit');
     
     try {
       const response = await axiosClient.post(`/submission/submit`, {
@@ -137,418 +172,475 @@ const ProblemPage = () => {
       });
 
       setSubmitResult(response.data);
-      setLoading(false);
-      setActiveRightTab('result');
+
+      if (response.data.submission?.status === 'accepted' || response.data.status === 'accepted') {
+        confetti({
+          particleCount: 120,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+      }
     } catch (error) {
       console.error('Error submitting code:', error);
-      setSubmitResult(null);
-      setLoading(false);
-      setActiveRightTab('result');
+      setSubmitResult({
+        success: false,
+        message: 'Submission failed. Please check your network or try again.'
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const getLanguageForMonaco = (lang) => {
-    switch (lang) {
-      case 'javascript': return 'javascript';
-      case 'java': return 'java';
-      case 'cpp': return 'cpp';
-      default: return 'javascript';
-    }
+  const handleCopyExample = (text, idx) => {
+    navigator.clipboard.writeText(text);
+    setCopiedExampleIndex(idx);
+    setTimeout(() => setCopiedExampleIndex(null), 2000);
   };
 
-  const getDifficultyColor = (difficulty) => {
-    switch (difficulty?.toLowerCase()) {
-      case 'easy': return 'text-green-500';
-      case 'medium': return 'text-yellow-500';
-      case 'hard': return 'text-red-500';
-      default: return 'text-gray-500';
-    }
-  };
-
-  if (loading && !problem) {
+  if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <span className="loading loading-spinner loading-lg"></span>
+      <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center space-y-3">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs text-zinc-500 font-medium">Initializing workspace...</p>
       </div>
     );
   }
 
+  const diffBadge = 
+    problem?.difficulty?.toLowerCase() === 'easy' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+    problem?.difficulty?.toLowerCase() === 'medium' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+    'text-rose-400 bg-rose-500/10 border-rose-500/20';
+
   return (
-    <div className="h-screen flex bg-linear-to-br from-base-100 to-base-200">
-      {/* Left Panel */}
-      <div className="w-1/2 flex flex-col border-r-2 border-primary/20 shadow-xl">
-        {/* Left Tabs */}
-        <div className="tabs tabs-boxed bg-base-300 p-2 m-2 rounded-lg shadow-md">
-          <button 
-            className={`tab transition-all duration-200 ${activeLeftTab === 'description' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveLeftTab('description')}
+    <div className="h-screen bg-[#09090b] text-white flex flex-col font-sans overflow-hidden select-none">
+      
+      {/* Top Workspace Navigation Bar */}
+      <header className="h-14 border-b border-white/[0.08] bg-zinc-950 px-4 flex items-center justify-between flex-shrink-0 z-20">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/problems')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-white/[0.08] text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
           >
-            📝 Description
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Problems</span>
           </button>
-          <button 
-            className={`tab transition-all duration-200 ${activeLeftTab === 'editorial' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveLeftTab('editorial')}
-          >
-            🎥 Editorial
-          </button>
-          <button 
-            className={`tab transition-all duration-200 ${activeLeftTab === 'submissions' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveLeftTab('submissions')}
-          >
-            📜 Submissions
-          </button>
-          <button 
-            className={`tab transition-all duration-200 ${activeLeftTab === 'ai' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveLeftTab('ai')}
-          >
-            🤖 AI Help
-          </button>
+
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold text-white truncate max-w-[200px] sm:max-w-xs md:max-w-md">
+              {problem?.title || 'Code Workspace'}
+            </h1>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${diffBadge}`}>
+              {problem?.difficulty}
+            </span>
+          </div>
         </div>
 
-        {/* Left Content */}
-        <div className="flex-1 overflow-y-auto p-6 bg-base-100/50 backdrop-blur-sm">
-          {problem && (
-            <>
-              {activeLeftTab === 'description' && (
-                <div className="animate-fade-in">
-                  <div className="flex items-center gap-4 mb-6 p-4 bg-linear-to-r from-primary/10 to-secondary/10 rounded-xl shadow-sm">
-                    <h1 className="text-3xl font-bold bg-linear-to-r from-primary to-secondary bg-clip-text text-transparent">
-                      {problem.title}
-                    </h1>
-                    <div className={`badge badge-lg ${getDifficultyColor(problem.difficulty)} font-semibold`}>
-                      {problem.difficulty?.charAt(0).toUpperCase() + problem.difficulty?.slice(1)}
-                    </div>
-                    <div className="badge badge-lg badge-primary font-semibold">{problem.tags}</div>
-                  </div>
+        {/* Stopwatch & Action controls */}
+        <div className="flex items-center gap-3">
+          {/* Stopwatch */}
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900 border border-white/[0.08] text-xs font-mono text-zinc-300">
+            <Clock className="w-3.5 h-3.5 text-zinc-500" />
+            <span>{formatTimer(timerSeconds)}</span>
+            <button
+              onClick={() => setTimerRunning(!timerRunning)}
+              className="text-zinc-500 hover:text-white transition-colors"
+              title={timerRunning ? "Pause Timer" : "Start Timer"}
+            >
+              {timerRunning ? <Pause className="w-3 h-3 text-amber-400" /> : <Play className="w-3 h-3 text-emerald-400 fill-emerald-400" />}
+            </button>
+            <button
+              onClick={() => {
+                setTimerRunning(false);
+                setTimerSeconds(0);
+              }}
+              className="text-zinc-500 hover:text-white transition-colors"
+              title="Reset Timer"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+          </div>
 
-                  <div className="prose max-w-none bg-base-100 p-6 rounded-xl shadow-md border border-base-300">
-                    <div className="whitespace-pre-wrap text-base leading-relaxed">
-                      {problem.description}
-                    </div>
-                  </div>
+          {/* Language Picker */}
+          <div className="relative">
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              className="appearance-none bg-zinc-900 border border-white/[0.08] rounded-xl px-3 py-1.5 pr-8 text-xs font-semibold text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer"
+            >
+              <option value="javascript">JavaScript</option>
+              <option value="cpp">C++</option>
+              <option value="java">Java</option>
+            </select>
+            <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
 
-                  <div className="mt-8">
-                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                      <span className="text-2xl">📚</span>
+          {/* Run Code Button */}
+          <button
+            onClick={handleRun}
+            disabled={running || submitting}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-200 bg-zinc-800 hover:bg-zinc-700 active:scale-95 disabled:opacity-50 transition-all"
+          >
+            {running ? (
+              <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5 fill-current" />
+            )}
+            <span>Run</span>
+          </button>
+
+          {/* Submit Code Button */}
+          <button
+            onClick={handleSubmitCode}
+            disabled={running || submitting}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 shadow-md shadow-indigo-500/20 active:scale-95 disabled:opacity-50 transition-all"
+          >
+            {submitting ? (
+              <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            <span>Submit</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Main Workspace Split Layout */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        
+        {/* Left Panel: Description / Editorial / Submissions / AI */}
+        <div className="w-full md:w-1/2 h-full flex flex-col border-r border-white/[0.08] bg-zinc-950/60 overflow-hidden">
+          
+          {/* Left Tab Bar */}
+          <div className="flex items-center gap-1 px-4 py-2 border-b border-white/[0.08] bg-zinc-950 flex-shrink-0">
+            {[
+              { id: 'description', label: 'Description', icon: FileText },
+              { id: 'editorial', label: 'Editorial', icon: Video },
+              { id: 'submissions', label: 'Submissions', icon: History },
+              { id: 'ai', label: 'AI Tutor', icon: Bot },
+            ].map(tab => {
+              const Icon = tab.icon;
+              const isActive = activeLeftTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveLeftTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    isActive
+                      ? 'bg-zinc-800 text-white font-semibold shadow-sm border border-white/[0.06]'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03]'
+                  }`}
+                >
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Left Content Area */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 select-text">
+            
+            {activeLeftTab === 'description' && problem && (
+              <div className="space-y-6 animate-fadeIn">
+                {/* Title & tags */}
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-extrabold text-white tracking-tight">
+                    {problem.title}
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${diffBadge}`}>
+                      {problem.difficulty}
+                    </span>
+                    <span className="text-xs text-zinc-400 font-medium capitalize bg-zinc-900 border border-white/[0.06] px-2.5 py-0.5 rounded-md">
+                      {problem.tags || 'General'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Problem Description text */}
+                <div className="prose prose-invert prose-sm max-w-none text-zinc-300 leading-relaxed font-normal whitespace-pre-wrap">
+                  {problem.description}
+                </div>
+
+                {/* Example Test Cases */}
+                {problem.visibleTestCases && problem.visibleTestCases.length > 0 && (
+                  <div className="space-y-4 pt-2">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
                       Examples
                     </h3>
-                    <div className="space-y-4">
-                      {problem.visibleTestCases?.map((example, index) => (
-                        <div key={index} className="bg-linear-to-br from-base-200 to-base-300 p-5 rounded-xl shadow-lg border border-primary/20 hover:border-primary/40 transition-all duration-200">
-                          <h4 className="font-bold mb-3 text-primary flex items-center gap-2">
-                            <span className="badge badge-primary badge-sm">{index + 1}</span>
-                            Example {index + 1}
-                          </h4>
-                          <div className="space-y-2 text-sm font-mono bg-base-100 p-4 rounded-lg">
-                            <div className="flex gap-2"><strong className="text-info">Input:</strong> <span className="text-base-content/80">{example.input.join(', ')}</span></div>
-                            <div className="flex gap-2"><strong className="text-success">Output:</strong> <span className="text-base-content/80">{example.output.join(', ')}</span></div>
-                            <div className="flex gap-2"><strong className="text-warning">Explanation:</strong> <span className="text-base-content/80">{example.explanation}</span></div>
+
+                    {problem.visibleTestCases.map((example, idx) => (
+                      <div 
+                        key={idx}
+                        className="rounded-2xl bg-zinc-900/70 border border-white/[0.08] p-4 space-y-3 relative group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-indigo-400">
+                            Example {idx + 1}
+                          </span>
+                          <button
+                            onClick={() => handleCopyExample(Array.isArray(example.input) ? example.input.join(', ') : example.input, idx)}
+                            className="p-1 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-white transition-all"
+                            title="Copy input"
+                          >
+                            {copiedExampleIndex === idx ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+
+                        <div className="space-y-1.5 font-mono text-xs">
+                          <div className="bg-zinc-950/80 p-2.5 rounded-xl border border-white/[0.04]">
+                            <span className="text-zinc-500 font-sans font-semibold">Input: </span>
+                            <span className="text-zinc-200">
+                              {Array.isArray(example.input) ? example.input.join(', ') : example.input}
+                            </span>
+                          </div>
+
+                          <div className="bg-zinc-950/80 p-2.5 rounded-xl border border-white/[0.04]">
+                            <span className="text-zinc-500 font-sans font-semibold">Output: </span>
+                            <span className="text-emerald-400">
+                              {Array.isArray(example.output) ? example.output.join(', ') : example.output}
+                            </span>
+                          </div>
+
+                          {example.explanation && (
+                            <div className="bg-zinc-950/80 p-2.5 rounded-xl border border-white/[0.04] text-zinc-400 font-sans">
+                              <span className="text-zinc-500 font-semibold">Explanation: </span>
+                              <span>{example.explanation}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeLeftTab === 'editorial' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-bold text-white">Video Solution & Walkthrough</h3>
+                  <p className="text-xs text-zinc-400">
+                    Watch the comprehensive breakdown and time/space complexity proof.
+                  </p>
+                </div>
+
+                {videoLoading ? (
+                  <div className="py-12 flex justify-center">
+                    <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : videoData ? (
+                  <Editorial 
+                    secureUrl={videoData.secureUrl}
+                    thumbnailUrl={videoData.thumbnailUrl}
+                    duration={videoData.duration}
+                  />
+                ) : (
+                  <div className="p-8 rounded-2xl bg-zinc-900/50 border border-white/[0.06] text-center space-y-2">
+                    <Video className="w-8 h-8 text-zinc-500 mx-auto" />
+                    <p className="text-sm font-semibold text-zinc-300">No Video Editorial Available</p>
+                    <p className="text-xs text-zinc-500">Video breakdown for this problem has not been uploaded yet.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeLeftTab === 'submissions' && (
+              <div className="animate-fadeIn">
+                <SubmissionHistory problemId={problemId} />
+              </div>
+            )}
+
+            {activeLeftTab === 'ai' && (
+              <div className="h-full animate-fadeIn">
+                <ChatAi problem={problem} />
+              </div>
+            )}
+
+          </div>
+        </div>
+
+        {/* Right Panel: Monaco Editor & Interactive Testcase Console */}
+        <div className="w-full md:w-1/2 h-full flex flex-col bg-zinc-950 overflow-hidden relative">
+          
+          {/* Monaco Editor Container */}
+          <div className="flex-1 relative overflow-hidden">
+            <Editor
+              height="100%"
+              language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage === 'java' ? 'java' : 'javascript'}
+              value={code}
+              onChange={(v) => setCode(v || '')}
+              onMount={handleEditorDidMount}
+              theme="vs-dark"
+              options={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 13.5,
+                lineHeight: 22,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: 2,
+                cursorBlinking: 'smooth',
+                cursorSmoothCaretAnimation: 'on',
+                formatOnPaste: true,
+                renderLineHighlight: 'all',
+                suggestOnTriggerCharacters: true,
+                padding: { top: 16, bottom: 16 }
+              }}
+            />
+          </div>
+
+          {/* Bottom Testcase & Submission Result Drawer */}
+          <div className={`border-t border-white/[0.08] bg-zinc-900/95 backdrop-blur-xl transition-all duration-300 flex flex-col ${
+            bottomDrawerOpen ? 'h-64' : 'h-10'
+          }`}>
+            {/* Drawer Header */}
+            <div className="h-10 px-4 flex items-center justify-between border-b border-white/[0.06] bg-zinc-950 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setBottomTab('run');
+                    setBottomDrawerOpen(true);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                    bottomTab === 'run'
+                      ? 'bg-zinc-800 text-white border border-white/[0.06]'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Test Results</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setBottomTab('submit');
+                    setBottomDrawerOpen(true);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                    bottomTab === 'submit'
+                      ? 'bg-zinc-800 text-white border border-white/[0.06]'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Submission</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setBottomDrawerOpen(!bottomDrawerOpen)}
+                className="text-zinc-500 hover:text-white p-1 rounded transition-colors"
+              >
+                {bottomDrawerOpen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            {/* Drawer Body */}
+            {bottomDrawerOpen && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs select-text">
+                {bottomTab === 'run' && (
+                  runResult ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {runResult.success ? (
+                            <span className="flex items-center gap-1.5 text-emerald-400 font-bold font-sans">
+                              <CheckCircle2 className="w-4 h-4" />
+                              All test cases passed!
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-rose-400 font-bold font-sans">
+                              <XCircle className="w-4 h-4" />
+                              Test failed
+                            </span>
+                          )}
+                        </div>
+
+                        {runResult.runtime && (
+                          <div className="flex items-center gap-3 text-zinc-400 font-mono text-[11px]">
+                            <span>⚡ Runtime: {runResult.runtime}s</span>
+                            <span>💾 Memory: {runResult.memory}KB</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {runResult.errorMessage && (
+                        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                          {runResult.errorMessage}
+                        </div>
+                      )}
+
+                      {runResult.testCases?.map((tc, idx) => (
+                        <div key={idx} className="p-3 rounded-xl bg-zinc-950/70 border border-white/[0.06] space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-sans font-bold text-zinc-400">Test Case #{idx + 1}</span>
+                            <span className={tc.passed ? 'text-emerald-400' : 'text-rose-400'}>
+                              {tc.passed ? 'Passed ✓' : 'Failed ✗'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pt-1 text-zinc-300">
+                            <div><span className="text-zinc-500">Input: </span>{tc.input}</div>
+                            <div><span className="text-zinc-500">Expected: </span>{tc.expected_output}</div>
+                            <div><span className="text-zinc-500">Output: </span>{tc.output}</div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {activeLeftTab === 'editorial' && (
-                <div className="animate-fade-in">
-                  <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                    <span className="text-2xl">🎥</span>
-                    Video Editorial
-                  </h2>
-
-                  {videoLoading ? (
-                    <div className="flex justify-center items-center py-12">
-                      <span className="loading loading-spinner loading-lg"></span>
+                  ) : (
+                    <div className="text-zinc-500 py-6 text-center">
+                      Click <strong className="text-zinc-300">Run</strong> to execute code against visible test cases.
                     </div>
-                  ) : videoData ? (
-                    <div className="space-y-6">
-                      <Editorial 
-                        secureUrl={videoData.secureUrl}
-                        thumbnailUrl={videoData.thumbnailUrl}
-                        duration={videoData.duration}
-                      />
-                      <div className="alert alert-success shadow-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div>
-                          <h3 className="font-bold">Video Editorial Available</h3>
-                          <div className="text-sm">
-                            Watch the complete solution explanation above
-                          </div>
+                  )
+                )}
+
+                {bottomTab === 'submit' && (
+                  submitResult ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {(submitResult.submission?.status === 'accepted' || submitResult.status === 'accepted') ? (
+                            <span className="flex items-center gap-1.5 text-emerald-400 font-bold font-sans text-sm">
+                              <CheckCircle2 className="w-5 h-5" />
+                              Accepted Solution! 🎉
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-rose-400 font-bold font-sans text-sm">
+                              <XCircle className="w-5 h-5" />
+                              {submitResult.message || 'Submission Rejected'}
+                            </span>
+                          )}
                         </div>
+
+                        {submitResult.submission?.runtime && (
+                          <div className="flex items-center gap-3 text-zinc-400 font-mono text-[11px]">
+                            <span>⚡ Runtime: {submitResult.submission.runtime}s</span>
+                            <span>💾 Memory: {submitResult.submission.memory}KB</span>
+                            <span>✓ Passed: {submitResult.submission.testCasesPassed}/{submitResult.submission.testCasesTotal}</span>
+                          </div>
+                        )}
                       </div>
+
+                      {submitResult.submission?.errorMessage && (
+                        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                          {submitResult.submission.errorMessage}
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="alert alert-warning shadow-lg">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <div>
-                        <h3 className="font-bold">No Video Editorial Available</h3>
-                        <div className="text-sm">
-                          The video editorial for this problem hasn't been uploaded yet. Check back later!
-                        </div>
-                      </div>
+                    <div className="text-zinc-500 py-6 text-center">
+                      Click <strong className="text-zinc-300">Submit</strong> to evaluate all hidden test cases.
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                )}
+              </div>
+            )}
+          </div>
 
-              {activeLeftTab === 'submissions' && (
-                <div className="animate-fade-in">
-                  <SubmissionHistory problemId={problemId} />
-                </div>
-              )}
-
-              {activeLeftTab === 'ai' && (
-                <div className="animate-fade-in">
-                  <ChatAi problem={problem} />
-                </div>
-              )}
-            </>
-          )}
         </div>
+
       </div>
 
-      {/* Right Panel - Same as before, keeping it unchanged */}
-      <div className="w-1/2 flex flex-col shadow-2xl">
-        <div className="tabs tabs-boxed bg-base-300 p-2 m-2 rounded-lg shadow-md">
-          <button 
-            className={`tab transition-all duration-200 ${activeRightTab === 'code' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveRightTab('code')}
-          >
-            💻 Code
-          </button>
-          <button 
-            className={`tab transition-all duration-200 ${activeRightTab === 'testcase' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveRightTab('testcase')}
-          >
-            🧪 Testcase
-          </button>
-          <button 
-            className={`tab transition-all duration-200 ${activeRightTab === 'result' ? 'tab-active bg-primary text-primary-content shadow-lg' : 'hover:bg-base-200'}`}
-            onClick={() => setActiveRightTab('result')}
-          >
-            📊 Result
-          </button>
-        </div>
-
-        <div className="flex-1 flex flex-col">
-          {activeRightTab === 'code' && (
-            <div className="flex-1 flex flex-col">
-              <div className="flex justify-between items-center p-4 border-b-2 border-primary/20 bg-linear-to-r from-base-200 to-base-300">
-                <div className="flex gap-2">
-                  {['javascript', 'java', 'cpp'].map((lang) => (
-                    <button
-                      key={lang}
-                      className={`btn btn-sm transition-all duration-200 ${selectedLanguage === lang ? 'btn-primary shadow-lg scale-105' : 'btn-ghost hover:btn-outline hover:btn-primary'}`}
-                      onClick={() => handleLanguageChange(lang)}
-                    >
-                      {lang === 'cpp' ? '⚡ C++' : lang === 'javascript' ? '🟨 JavaScript' : '☕ Java'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex-1">
-                <Editor
-                  height="100%"
-                  language={getLanguageForMonaco(selectedLanguage)}
-                  value={code}
-                  onChange={handleEditorChange}
-                  onMount={handleEditorDidMount}
-                  theme="vs-dark"
-                  options={{
-                    fontSize: 14,
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    insertSpaces: true,
-                    wordWrap: 'on',
-                    lineNumbers: 'on',
-                    glyphMargin: false,
-                    folding: true,
-                    lineDecorationsWidth: 10,
-                    lineNumbersMinChars: 3,
-                    renderLineHighlight: 'line',
-                    selectOnLineNumbers: true,
-                    roundedSelection: false,
-                    readOnly: false,
-                    cursorStyle: 'line',
-                    mouseWheelZoom: true,
-                  }}
-                />
-              </div>
-
-              <div className="p-4 border-t-2 border-primary/20 bg-linear-to-r from-base-200 to-base-300 flex justify-between shadow-inner">
-                <div className="flex gap-2">
-                  <button 
-                    className="btn btn-ghost btn-sm hover:btn-info transition-all duration-200"
-                    onClick={() => setActiveRightTab('testcase')}
-                  >
-                    🖥️ Console
-                  </button>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    className={`btn btn-outline btn-primary btn-sm hover:scale-105 transition-all duration-200 ${loading ? 'loading' : ''}`}
-                    onClick={handleRun}
-                    disabled={loading}
-                  >
-                    {!loading && '▶️'} Run
-                  </button>
-                  <button
-                    className={`btn btn-primary btn-sm shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 ${loading ? 'loading' : ''}`}
-                    onClick={handleSubmitCode}
-                    disabled={loading}
-                  >
-                    {!loading && '🚀'} Submit
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeRightTab === 'testcase' && (
-            <div className="flex-1 p-6 overflow-y-auto bg-base-100/50 backdrop-blur-sm">
-              <h3 className="font-bold text-xl mb-4 flex items-center gap-2">
-                <span className="text-2xl">🧪</span>
-                Test Results
-              </h3>
-              {runResult ? (
-                <div className={`alert ${runResult.success ? 'alert-success' : 'alert-error'} shadow-xl border-2 ${runResult.success ? 'border-success' : 'border-error'}`}>
-                  <div className="w-full">
-                    {runResult.success ? (
-                      <div>
-                        <h4 className="font-bold text-lg flex items-center gap-2">
-                          <span className="text-2xl">✅</span>
-                          All test cases passed!
-                        </h4>
-                        <div className="flex gap-6 mt-3 text-sm">
-                          <p className="badge badge-lg badge-success gap-2">⚡ Runtime: {runResult.runtime} sec</p>
-                          <p className="badge badge-lg badge-success gap-2">💾 Memory: {runResult.memory} KB</p>
-                        </div>
-                        
-                        <div className="mt-6 space-y-3">
-                          {runResult.testCases?.map((tc, i) => (
-                            <div key={i} className="bg-base-100 p-4 rounded-xl shadow-md border-2 border-success/30 hover:border-success/60 transition-all duration-200">
-                              <div className="font-mono text-xs space-y-2">
-                                <div className="flex gap-2"><strong className="text-info">Input:</strong> <span>{tc.input}</span></div>
-                                <div className="flex gap-2"><strong className="text-warning">Expected:</strong> <span>{tc.expected_output}</span></div>
-                                <div className="flex gap-2"><strong className="text-success">Output:</strong> <span>{tc.output}</span></div>
-                                <div className="badge badge-success gap-2">✓ Passed</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <h4 className="font-bold text-lg flex items-center gap-2">
-                          <span className="text-2xl">❌</span>
-                          Test Failed
-                        </h4>
-                        {runResult.errorMessage && (
-                          <div className="mt-2 p-3 bg-error/20 rounded">
-                            <p className="text-sm">{runResult.errorMessage}</p>
-                          </div>
-                        )}
-                        <div className="mt-6 space-y-3">
-                          {runResult.testCases?.map((tc, i) => (
-                            <div key={i} className="bg-base-100 p-4 rounded-xl shadow-md border-2 border-error/30">
-                              <div className="font-mono text-xs space-y-2">
-                                <div className="flex gap-2"><strong className="text-info">Input:</strong> <span>{tc.input}</span></div>
-                                <div className="flex gap-2"><strong className="text-warning">Expected:</strong> <span>{tc.expected_output}</span></div>
-                                <div className="flex gap-2"><strong className="text-error">Output:</strong> <span>{tc.output}</span></div>
-                                <div className={`badge gap-2 ${tc.passed ? 'badge-success' : 'badge-error'}`}>
-                                  {tc.passed ? '✓ Passed' : '✗ Failed'}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="alert alert-info shadow-lg">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                  <span>Click "Run" to test your code with the example test cases.</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeRightTab === 'result' && (
-            <div className="flex-1 p-6 overflow-y-auto bg-base-100/50 backdrop-blur-sm">
-              <h3 className="font-bold text-xl mb-4 flex items-center gap-2">
-                <span className="text-2xl">📊</span>
-                Submission Result
-              </h3>
-              {submitResult ? (
-                <div className={`alert ${submitResult.submission?.status === 'accepted' ? 'alert-success' : 'alert-error'} shadow-xl border-2 ${submitResult.submission?.status === 'accepted' ? 'border-success' : 'border-error'}`}>
-                  <div className="w-full">
-                    {submitResult.submission?.status === 'accepted' ? (
-                      <div>
-                        <h4 className="font-bold text-2xl flex items-center gap-3 mb-4">
-                          <span className="text-4xl">🎉</span>
-                          Accepted!
-                        </h4>
-                        <div className="grid grid-cols-1 gap-3 mt-4">
-                          <div className="stats shadow-lg bg-success/20">
-                            <div className="stat">
-                              <div className="stat-title">Test Cases</div>
-                              <div className="stat-value text-success">{submitResult.submission.testCasesPassed}/{submitResult.submission.testCasesTotal}</div>
-                              <div className="stat-desc">All tests passed ✓</div>
-                            </div>
-                          </div>
-                          <div className="flex gap-3">
-                            <div className="badge badge-lg badge-success gap-2 p-4">
-                              ⚡ Runtime: {submitResult.submission.runtime} sec
-                            </div>
-                            <div className="badge badge-lg badge-success gap-2 p-4">
-                              💾 Memory: {submitResult.submission.memory} KB
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <h4 className="font-bold text-2xl flex items-center gap-3 mb-4">
-                          <span className="text-4xl">❌</span>
-                          {submitResult.message || 'Failed'}
-                        </h4>
-                        {submitResult.submission?.errorMessage && (
-                          <div className="mt-2 p-3 bg-error/20 rounded">
-                            <p className="text-sm">{submitResult.submission.errorMessage}</p>
-                          </div>
-                        )}
-                        <div className="stats shadow-lg bg-error/20 mt-4">
-                          <div className="stat">
-                            <div className="stat-title">Test Cases</div>
-                            <div className="stat-value text-error">{submitResult.submission?.testCasesPassed}/{submitResult.submission?.testCasesTotal}</div>
-                            <div className="stat-desc">Failed - Try again!</div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="alert alert-info shadow-lg">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                  <span>Click "Submit" to submit your solution for evaluation.</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 };

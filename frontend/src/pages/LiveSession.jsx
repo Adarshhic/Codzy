@@ -2,7 +2,11 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useSelector } from 'react-redux';
 import Editor from '@monaco-editor/react';
-import { Users, MessageSquare, Code, Send, LogOut } from 'lucide-react';
+import { 
+  Users, MessageSquare, Code, Send, LogOut, Radio, 
+  Sparkles, CheckCircle2, ChevronRight, Share2, 
+  Terminal, ArrowLeft, Lock, Unlock, Zap, FileCode2
+} from 'lucide-react';
 import axiosClient from '../utils/axiosClient';
 import { initializeSocket, getSocket, disconnectSocket } from '../utils/socket';
 import useStudyGroupStore from '../store/studyGroupStore';
@@ -34,17 +38,17 @@ function LiveSession() {
   } = useStudyGroupStore();
 
   const [problem, setProblem] = useState(null);
-  const [localCode, setLocalCode] = useState('');
+  const [localCode, setLocalCode] = useState('// Write your solution here\n\nfunction solution() {\n  \n}');
   const [selectedLanguage, setSelectedLanguage] = useState('javascript');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [isCodeSharing, setIsCodeSharing] = useState(false);
+  const [activeTab, setActiveTab] = useState('description'); // 'description' | 'testcases'
   
   const messagesEndRef = useRef(null);
   const editorRef = useRef(null);
   const socketRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
-  const messageIdsRef = useRef(new Set()); // Track message IDs to prevent duplicates
+  const messageIdsRef = useRef(new Set());
 
   useEffect(() => {
     initializeSessionAndSocket();
@@ -72,16 +76,23 @@ function LiveSession() {
       setActiveSession(data.session);
       setProblem(data.session.problemId);
       
+      // Set starter code if available
+      if (data.session.problemId?.startCode && data.session.problemId.startCode.length > 0) {
+        const jsStart = data.session.problemId.startCode.find(s => s.language?.toLowerCase() === 'javascript');
+        if (jsStart?.initialCode) {
+          setLocalCode(jsStart.initialCode);
+        }
+      }
+
       // Fetch existing messages FIRST
       const messagesRes = await axiosClient.get(`/study-groups/${groupId}/messages?sessionId=${sessionId}`);
       const existingMessages = messagesRes.data.messages || [];
       
-      // Store message IDs to prevent duplicates
       messageIdsRef.current = new Set(existingMessages.map(m => m._id));
       setMessages(existingMessages);
       
       // Initialize socket AFTER fetching messages
-      socketRef.current = initializeSocket(user._id, user.FirstName);
+      socketRef.current = initializeSocket(user._id || user.id, user.FirstName || 'Anonymous');
       setupSocketListeners();
       
       // Join the room
@@ -102,33 +113,27 @@ function LiveSession() {
   const setupSocketListeners = () => {
     const socket = socketRef.current;
 
-    // Room users
     socket.on('room-users', ({ participants: roomParticipants }) => {
       setParticipants(roomParticipants);
     });
 
-    // User joined
     socket.on('user-joined', ({ userId, username }) => {
       addParticipant({ userId, username });
-      toast.success(`${username} joined the session`);
+      toast.success(`${username} joined room`);
     });
 
-    // User left
     socket.on('user-left', ({ userId, username }) => {
       removeParticipant(userId);
-      toast(`${username} left the session`, { icon: '👋' });
+      toast(`${username} left room`, { icon: '👋' });
     });
 
-    // Receive message - WITH DEDUPLICATION
     socket.on('receive-message', (msg) => {
-      // Only add message if we haven't seen this ID before
       if (!messageIdsRef.current.has(msg._id)) {
         messageIdsRef.current.add(msg._id);
         addMessage(msg);
       }
     });
 
-    // Code updates
     socket.on('code-updated', ({ userId, username, code, language }) => {
       if (isCodeSharing) {
         setSharedCode(code);
@@ -136,9 +141,8 @@ function LiveSession() {
       }
     });
 
-    // Problem changed
     socket.on('problem-changed', async ({ problemId, problemTitle }) => {
-      toast.success(`Problem changed to: ${problemTitle}`);
+      toast.success(`Problem changed: ${problemTitle}`);
       try {
         const { data } = await axiosClient.get(`/problem/problemById/${problemId}`);
         setProblem(data.problem || data);
@@ -147,21 +151,14 @@ function LiveSession() {
       }
     });
 
-    // User solved problem
     socket.on('user-solved-problem', ({ username, problemTitle }) => {
       toast.success(`🎉 ${username} solved ${problemTitle}!`, { duration: 5000 });
     });
 
-    // Typing indicators
     socket.on('user-typing', ({ username }) => {
       addTypingUser(username);
     });
 
-    socket.on('user-stopped-typing', ({ userId }) => {
-      // Remove typing user (we'd need to track userId to username mapping)
-    });
-
-    // Errors
     socket.on('error', ({ message }) => {
       toast.error(message);
     });
@@ -171,7 +168,7 @@ function LiveSession() {
     e.preventDefault();
     if (!message.trim()) return;
 
-    socketRef.current.emit('send-message', {
+    socketRef.current?.emit('send-message', {
       roomId: `session-${sessionId}`,
       groupId: groupId,
       sessionId: sessionId,
@@ -206,11 +203,19 @@ function LiveSession() {
   };
 
   const toggleCodeSharing = () => {
-    setIsCodeSharing(!isCodeSharing);
-    if (!isCodeSharing) {
-      toast.success('Code sharing enabled');
+    const nextState = !isCodeSharing;
+    setIsCodeSharing(nextState);
+    if (nextState) {
+      toast.success('Live code broadcasting enabled');
+      if (socketRef.current) {
+        socketRef.current.emit('code-change', {
+          roomId: `session-${sessionId}`,
+          code: localCode,
+          language: selectedLanguage
+        });
+      }
     } else {
-      toast('Code sharing disabled', { icon: '🔒' });
+      toast('Broadcast disabled — local edit mode', { icon: '🔒' });
     }
   };
 
@@ -221,7 +226,6 @@ function LiveSession() {
         groupId: groupId
       });
     }
-    // Clear message IDs
     messageIdsRef.current.clear();
     reset();
   };
@@ -240,106 +244,222 @@ function LiveSession() {
     return map[lang] || 'javascript';
   };
 
-  // Deduplicate messages before rendering (extra safety)
   const uniqueMessages = messages.filter((msg, index, self) => 
     index === self.findIndex((m) => m._id === msg._id)
   );
 
+  const getDifficultyBadge = (difficulty) => {
+    switch (difficulty?.toLowerCase()) {
+      case 'easy':
+        return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+      case 'medium':
+        return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      case 'hard':
+        return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+      default:
+        return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+    }
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <span className="loading loading-spinner loading-lg"></span>
+      <div className="h-screen bg-[#09090b] flex items-center justify-center text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+          <p className="text-zinc-500 text-sm font-medium">Connecting to live study room...</p>
+        </div>
       </div>
     );
   }
 
+  const currentUserId = user?._id || user?.id;
+
   return (
-    <div className="h-screen flex flex-col bg-base-200">
-      {/* Header */}
-      <div className="bg-base-100 border-b border-base-300 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold">{problem?.title}</h1>
-          <div className={`badge ${
-            problem?.difficulty === 'easy' ? 'badge-success' :
-            problem?.difficulty === 'medium' ? 'badge-warning' : 'badge-error'
-          }`}>
-            {problem?.difficulty}
+    <div className="h-screen flex flex-col bg-[#09090b] text-zinc-100 antialiased overflow-hidden select-none">
+      {/* Top Header Bar */}
+      <header className="h-14 bg-zinc-950/80 border-b border-white/[0.08] backdrop-blur-xl px-4 flex items-center justify-between z-20 shrink-0">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate(`/study-groups/${groupId}`)}
+            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all flex items-center gap-1 text-xs"
+            title="Return to group"
+          >
+            <ArrowLeft size={14} />
+            <span className="hidden sm:inline">Group</span>
+          </button>
+
+          <div className="h-5 w-px bg-zinc-800 hidden sm:block" />
+
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <h1 className="font-bold text-sm sm:text-base text-white truncate max-w-[200px] sm:max-w-md">
+              {problem?.title || 'Live Coding Session'}
+            </h1>
+            {problem?.difficulty && (
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${getDifficultyBadge(problem.difficulty)}`}>
+                {problem.difficulty}
+              </span>
+            )}
           </div>
-          <div className="badge badge-outline">{problem?.tags}</div>
         </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm">
-            <Users size={16} />
-            <span>{participants.length} online</span>
+
+        <div className="flex items-center gap-3">
+          {/* Active Participants Pill */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs text-zinc-300 font-medium">
+            <Users size={14} className="text-indigo-400" />
+            <span>{participants.length}</span>
+            <span className="text-zinc-500 hidden sm:inline">online</span>
           </div>
-          
+
+          {/* Share Code Toggle */}
+          <button
+            onClick={toggleCodeSharing}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-all ${
+              isCodeSharing 
+                ? 'bg-indigo-500/10 border-indigo-500/40 text-indigo-300 shadow-sm shadow-indigo-500/20' 
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {isCodeSharing ? (
+              <>
+                <Share2 size={14} className="text-indigo-400 animate-pulse" />
+                <span>Broadcasting</span>
+              </>
+            ) : (
+              <>
+                <Lock size={14} />
+                <span>Local Only</span>
+              </>
+            )}
+          </button>
+
+          {/* Leave Button */}
           <button
             onClick={() => navigate(`/study-groups/${groupId}`)}
-            className="btn btn-ghost btn-sm gap-2"
+            className="px-3 py-1.5 rounded-xl bg-zinc-900/80 hover:bg-rose-500/10 border border-zinc-800 hover:border-rose-500/30 text-zinc-400 hover:text-rose-400 text-xs font-medium transition-all flex items-center gap-1.5"
           >
-            <LogOut size={16} />
-            Leave Session
+            <LogOut size={14} />
+            <span className="hidden sm:inline">Leave</span>
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Main Content */}
+      {/* Main 3-Column Split Workspace */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Problem Description */}
-        <div className="w-1/3 border-r border-base-300 overflow-y-auto p-6 bg-base-100">
-          <h2 className="text-2xl font-bold mb-4">Problem Description</h2>
-          <div className="prose max-w-none">
-            <p className="whitespace-pre-wrap">{problem?.description}</p>
+        {/* Left Column: Problem Description & Cases */}
+        <div className="w-1/3 min-w-[320px] max-w-[480px] bg-zinc-950/60 border-r border-white/[0.08] flex flex-col overflow-hidden">
+          {/* Tab Header */}
+          <div className="h-10 px-4 border-b border-white/[0.08] bg-zinc-950/40 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveTab('description')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  activeTab === 'description'
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Description
+              </button>
+              <button
+                onClick={() => setActiveTab('testcases')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  activeTab === 'testcases'
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Examples ({problem?.visibleTestCases?.length || 0})
+              </button>
+            </div>
+            {problem?.tags && (
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                {problem.tags}
+              </span>
+            )}
           </div>
 
-          {problem?.visibleTestCases && problem.visibleTestCases.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-lg font-bold mb-3">Examples</h3>
-              {problem.visibleTestCases.map((tc, i) => (
-                <div key={i} className="bg-base-200 p-4 rounded-lg mb-3">
-                  <p className="font-semibold mb-2">Example {i + 1}</p>
-                  <div className="space-y-1 text-sm font-mono">
-                    <div><strong>Input:</strong> {tc.input.join(', ')}</div>
-                    <div><strong>Output:</strong> {tc.output.join(', ')}</div>
-                    {tc.explanation && <div><strong>Explanation:</strong> {tc.explanation}</div>}
-                  </div>
+          {/* Tab Content */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-6 text-sm">
+            {activeTab === 'description' ? (
+              <div className="space-y-4">
+                <h2 className="text-base font-bold text-white">Problem Statement</h2>
+                <div className="text-zinc-300 leading-relaxed whitespace-pre-wrap font-sans text-sm">
+                  {problem?.description || 'No description provided.'}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Example Test Cases</h2>
+                {problem?.visibleTestCases && problem.visibleTestCases.length > 0 ? (
+                  problem.visibleTestCases.map((tc, i) => (
+                    <div key={i} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold">
+                        <span>Example {i + 1}</span>
+                      </div>
+                      <div className="space-y-2 font-mono text-xs">
+                        <div className="p-2 rounded-xl bg-zinc-950 border border-zinc-800/80">
+                          <span className="text-zinc-500">Input: </span>
+                          <span className="text-indigo-300">{Array.isArray(tc.input) ? tc.input.join(', ') : tc.input}</span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-zinc-950 border border-zinc-800/80">
+                          <span className="text-zinc-500">Output: </span>
+                          <span className="text-emerald-400">{Array.isArray(tc.output) ? tc.output.join(', ') : tc.output}</span>
+                        </div>
+                        {tc.explanation && (
+                          <div className="text-zinc-400 font-sans text-xs pt-1">
+                            <span className="font-semibold text-zinc-500">Explanation: </span>
+                            {tc.explanation}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-zinc-500 italic">No example test cases available for this challenge.</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Middle Panel - Code Editor */}
-        <div className="flex-1 flex flex-col">
-          <div className="bg-base-100 border-b border-base-300 px-4 py-2 flex items-center justify-between">
-            <div className="flex gap-2">
-              {['javascript', 'java', 'cpp', 'python'].map((lang) => (
+        {/* Center Column: Collaborative Monaco Code Editor */}
+        <div className="flex-1 flex flex-col bg-[#1e1e1e] border-r border-white/[0.08] overflow-hidden">
+          {/* Editor Language / Status Toolbar */}
+          <div className="h-10 bg-zinc-950/90 border-b border-white/[0.08] px-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-1.5">
+              <FileCode2 size={14} className="text-indigo-400" />
+              {['javascript', 'python', 'java', 'cpp'].map((lang) => (
                 <button
                   key={lang}
-                  className={`btn btn-sm ${selectedLanguage === lang ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => handleLanguageChange(lang)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    selectedLanguage === lang
+                      ? 'bg-zinc-800 text-white font-semibold'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
                 >
-                  {lang === 'cpp' ? 'C++' : lang.charAt(0).toUpperCase() + lang.slice(1)}
+                  {lang === 'cpp' ? 'C++' : lang === 'javascript' ? 'JavaScript' : lang.charAt(0).toUpperCase() + lang.slice(1)}
                 </button>
               ))}
             </div>
-            
-            <div className="flex items-center gap-2">
-              <label className="label cursor-pointer gap-2">
-                <span className="label-text text-sm">Share Code</span>
-                <input
-                  type="checkbox"
-                  className="toggle toggle-primary toggle-sm"
-                  checked={isCodeSharing}
-                  onChange={toggleCodeSharing}
-                />
-              </label>
-              <Code size={16} className={isCodeSharing ? 'text-success' : 'text-base-content/50'} />
+
+            <div className="flex items-center gap-2 text-xs">
+              {isCodeSharing ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono text-[11px]">
+                  <Share2 size={11} /> Syncing
+                </span>
+              ) : (
+                <span className="text-zinc-500 text-[11px] font-mono">Local Draft</span>
+              )}
             </div>
           </div>
 
-          <div className="flex-1">
+          {/* Monaco Editor Container */}
+          <div className="flex-1 relative overflow-hidden">
             <Editor
               height="100%"
               language={getLanguageForMonaco(selectedLanguage)}
@@ -347,88 +467,109 @@ function LiveSession() {
               onChange={handleCodeChange}
               theme="vs-dark"
               options={{
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                 fontSize: 14,
+                lineHeight: 22,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
-                wordWrap: 'on'
+                wordWrap: 'on',
+                tabSize: 2,
+                cursorBlinking: 'smooth',
+                cursorSmoothCaretAnimation: 'on',
+                padding: { top: 12, bottom: 12 }
               }}
             />
           </div>
         </div>
 
-        {/* Right Panel - Chat & Participants */}
-        <div className="w-80 border-l border-base-300 flex flex-col bg-base-100">
-          {/* Participants */}
-          <div className="p-4 border-b border-base-300">
-            <h3 className="font-bold mb-3 flex items-center gap-2">
-              <Users size={16} />
-              Participants ({participants.length})
-            </h3>
-            <div className="space-y-2 max-h-32 overflow-y-auto">
+        {/* Right Column: Participants & Real-time Room Chat */}
+        <div className="w-80 min-w-[280px] bg-zinc-950/90 flex flex-col overflow-hidden">
+          {/* Participants Section */}
+          <div className="p-3 border-b border-white/[0.08] bg-zinc-950/60 shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Users size={14} className="text-indigo-400" />
+                Active Peers ({participants.length})
+              </span>
+            </div>
+            
+            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
               {participants.map((p) => (
-                <div key={p.userId} className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-success rounded-full"></div>
-                  <span className="text-sm">{p.username}</span>
-                </div>
+                <span 
+                  key={p.userId}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-300 font-medium"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {p.username}
+                </span>
               ))}
             </div>
           </div>
 
-          {/* Chat */}
-          <div className="flex-1 flex flex-col">
-            <div className="p-4 border-b border-base-300">
-              <h3 className="font-bold flex items-center gap-2">
-                <MessageSquare size={16} />
-                Chat
-              </h3>
+          {/* Chat Messages */}
+          <div className="flex-1 flex flex-col min-h-0 bg-zinc-950/40">
+            <div className="px-4 py-2 border-b border-white/[0.08] flex items-center justify-between text-xs text-zinc-400 font-bold uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <MessageSquare size={13} className="text-indigo-400" /> Room Chat
+              </span>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {uniqueMessages.map((msg) => (
-                <div
-                  key={msg._id}
-                  className={`${
-                    msg.messageType === 'system'
-                      ? 'text-center text-sm text-base-content/60 italic'
-                      : msg.userId === user._id
-                        ? 'chat chat-end'
-                        : 'chat chat-start'
-                  }`}
-                >
-                  {msg.messageType !== 'system' && (
-                    <>
-                      <div className="chat-header text-xs opacity-50 mb-1">
-                        {msg.username}
-                      </div>
-                      <div className="chat-bubble chat-bubble-primary">
-                        {msg.message}
-                      </div>
-                    </>
-                  )}
-                  {msg.messageType === 'system' && <div>{msg.message}</div>}
-                </div>
-              ))}
+              {uniqueMessages.map((msg) => {
+                const isMe = msg.userId === currentUserId;
+                const isSystem = msg.messageType === 'system';
+
+                if (isSystem) {
+                  return (
+                    <div key={msg._id} className="text-center py-1 text-[11px] text-zinc-500 font-medium italic">
+                      {msg.message}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={msg._id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    <span className="text-[10px] font-semibold text-zinc-500 mb-1 px-1">
+                      {isMe ? 'You' : msg.username}
+                    </span>
+                    <div 
+                      className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed ${
+                        isMe 
+                          ? 'bg-indigo-600 text-white rounded-br-sm shadow-md shadow-indigo-500/10' 
+                          : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-sm'
+                      }`}
+                    >
+                      {msg.message}
+                    </div>
+                  </div>
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
 
             {typingUsers.length > 0 && (
-              <div className="px-4 py-2 text-xs text-base-content/60 italic">
+              <div className="px-4 py-1.5 text-[11px] text-zinc-500 italic bg-zinc-950/60 border-t border-zinc-900">
                 {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
               </div>
             )}
 
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-base-300">
-              <div className="flex gap-2">
+            {/* Chat Input */}
+            <form onSubmit={handleSendMessage} className="p-3 border-t border-white/[0.08] bg-zinc-950 shrink-0">
+              <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 focus-within:border-indigo-500 rounded-2xl p-1 px-3 transition-colors">
                 <input
                   type="text"
-                  placeholder="Type a message..."
-                  className="input input-bordered input-sm flex-1"
+                  placeholder="Type message..."
+                  className="bg-transparent border-none text-xs text-white placeholder-zinc-500 flex-1 focus:outline-none py-1.5"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                 />
-                <button type="submit" className="btn btn-primary btn-sm btn-square">
-                  <Send size={16} />
+                <button 
+                  type="submit" 
+                  disabled={!message.trim()}
+                  className="p-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white transition-all"
+                >
+                  <Send size={13} />
                 </button>
               </div>
             </form>

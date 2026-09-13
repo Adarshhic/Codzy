@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router';
 import { useSelector } from 'react-redux';
-import { Plus, Users, LogIn } from 'lucide-react';
+import { Plus, Users, LogIn, Lock, Globe, Sparkles, ArrowRight, X, Shield } from 'lucide-react';
 import axiosClient from '../utils/axiosClient';
 import toast from 'react-hot-toast';
 import useStudyGroupStore from '../store/studyGroupStore';
+import Navbar from '../components/Navbar';
 
 function StudyGroups() {
   const navigate = useNavigate();
@@ -14,7 +15,6 @@ function StudyGroups() {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   
   // Create group form
   const [createForm, setCreateForm] = useState({
@@ -28,15 +28,6 @@ function StudyGroups() {
   const [inviteCode, setInviteCode] = useState('');
 
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
-
-  useEffect(() => {
     fetchGroups();
   }, []);
 
@@ -44,7 +35,7 @@ function StudyGroups() {
     try {
       setLoading(true);
       const { data } = await axiosClient.get('/study-groups/my-groups');
-      setGroups(data.groups);
+      setGroups(data.groups || []);
     } catch (error) {
       console.error('Error fetching groups:', error);
       toast.error('Failed to load study groups');
@@ -83,343 +74,262 @@ function StudyGroups() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-cyan-400 font-bold">LOADING...</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-black text-white overflow-hidden font-['Orbitron',sans-serif] relative">
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div 
-          className="absolute inset-0 opacity-30"
-          style={{
-            background: `radial-gradient(circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(0, 255, 255, 0.15), transparent 50%)`,
-          }}
-        />
-        
-        <div 
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(0, 255, 255, 0.3) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(0, 255, 255, 0.3) 1px, transparent 1px)
-            `,
-            backgroundSize: '50px 50px',
-          }}
-        />
+    <div className="min-h-screen bg-[#09090b] text-white flex flex-col font-sans selection:bg-purple-500/30 selection:text-purple-200">
+      <Navbar />
 
-        {[...Array(30)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 bg-cyan-400 rounded-full animate-float"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 5}s`,
-              animationDuration: `${3 + Math.random() * 4}s`,
-              opacity: Math.random() * 0.5 + 0.3,
-            }}
-          />
-        ))}
+      {/* Ambient background glows */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-purple-600/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 left-10 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl" />
       </div>
 
-      {/* Header */}
-      <div className="relative z-50 bg-black/30 backdrop-blur-sm border-b border-cyan-500/20 px-8 py-8">
-        <div className="container mx-auto">
-          <div className="flex items-center justify-between">
-            <div className="animate-fadeIn">
-              <div className="inline-block px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-600/20 border border-purple-500/50 rounded-full backdrop-blur-sm mb-4">
-                <span className="text-purple-400 font-bold text-sm tracking-wider">👥 COLLABORATION HUB</span>
-              </div>
-              <h1 className="text-5xl font-black bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
-                STUDY GROUPS
-              </h1>
-              <p className="text-gray-400 text-lg">
-                Collaborate and conquer problems together
-              </p>
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
+        
+        {/* Header Hero Banner */}
+        <div className="rounded-3xl bg-zinc-900/60 border border-white/[0.08] p-6 sm:p-8 backdrop-blur-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Real-Time Collaboration</span>
             </div>
-            <div className="flex gap-3 animate-fadeIn" style={{animationDelay: '0.2s'}}>
-              <button 
-                onClick={() => setShowJoinModal(true)}
-                className="group px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-400 font-bold hover:bg-purple-500/20 hover:border-purple-500 transition-all duration-300 flex items-center gap-2"
-              >
-                <LogIn size={20} className="group-hover:rotate-12 transition-transform" />
-                JOIN GROUP
-              </button>
-              <button 
-                onClick={() => setShowCreateModal(true)}
-                className="group px-6 py-3 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-xl font-bold hover:shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 transform hover:scale-105 flex items-center gap-2 relative overflow-hidden"
-              >
-                <span className="relative z-10 flex items-center gap-2">
-                  <Plus size={20} className="group-hover:rotate-90 transition-transform" />
-                  CREATE GROUP
-                </span>
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+              Study Groups & Live Rooms
+            </h1>
+            <p className="text-sm text-zinc-400 max-w-xl">
+              Collaborate in synchronized coding rooms, share algorithm insights, and solve challenging problems together.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-800 border border-white/[0.08] transition-all"
+            >
+              <LogIn className="w-4 h-4 text-purple-400" />
+              <span>Join with Code</span>
+            </button>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-md shadow-purple-500/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Group</span>
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Groups Grid */}
-      <div className="relative container mx-auto p-8 max-w-7xl">
-        {groups.length === 0 ? (
-          <div className="text-center py-32 animate-fadeIn">
-            <div className="w-32 h-32 bg-gradient-to-br from-cyan-500/20 to-purple-600/20 rounded-full flex items-center justify-center mx-auto mb-8 border border-cyan-500/30">
-              <Users size={64} className="text-cyan-400" />
+        {/* Groups Grid */}
+        <div>
+          {loading ? (
+            <div className="py-20 flex flex-col items-center justify-center space-y-3">
+              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs text-zinc-500 font-medium">Loading your study groups...</p>
             </div>
-            <h2 className="text-3xl font-black text-white mb-4">
-              NO STUDY GROUPS YET
-            </h2>
-            <p className="text-gray-400 mb-8 text-lg">
-              Create your first group or join one with an invite code
-            </p>
-            <div className="flex gap-4 justify-center">
-              <button 
-                onClick={() => setShowJoinModal(true)}
-                className="px-8 py-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-400 font-bold hover:bg-purple-500/20 transition-all flex items-center gap-2"
-              >
-                <LogIn size={20} />
-                JOIN GROUP
-              </button>
-              <button 
-                onClick={() => setShowCreateModal(true)}
-                className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-xl font-bold hover:shadow-2xl hover:shadow-cyan-500/50 transition-all transform hover:scale-105 flex items-center gap-2"
-              >
-                <Plus size={20} />
-                CREATE GROUP
-              </button>
+          ) : groups.length === 0 ? (
+            <div className="rounded-3xl bg-zinc-900/30 border border-white/[0.06] p-12 text-center space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mx-auto text-purple-400">
+                <Users className="w-7 h-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold text-white">No active study groups</h3>
+                <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                  Create a new study group or enter an invite code from your peer to start live pair programming.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setShowJoinModal(true)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-white/[0.08] transition-all"
+                >
+                  Enter Invite Code
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-all"
+                >
+                  Create First Group
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {groups.map((group, index) => (
-              <NavLink
-                key={group._id}
-                to={`/study-groups/${group._id}`}
-                className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-sm border border-purple-500/30 rounded-2xl hover:border-purple-500 shadow-lg hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300 transform hover:scale-105 animate-fadeIn"
-                style={{animationDelay: `${index * 0.1}s`}}
-              >
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <h2 className="text-2xl font-black text-white group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-cyan-400 group-hover:to-purple-600 group-hover:bg-clip-text transition-all">
-                      {group.name}
-                    </h2>
-                    {group.userRole === 'admin' && (
-                      <div className="px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-lg text-xs font-bold border border-yellow-500/50">
-                        ADMIN
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {groups.map((group) => (
+                <NavLink
+                  key={group._id}
+                  to={`/study-groups/${group._id}`}
+                  className="group rounded-3xl bg-zinc-900/40 border border-white/[0.08] hover:border-purple-500/40 p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-2xl hover:shadow-purple-500/10 flex flex-col justify-between space-y-5"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Users className="w-5 h-5 text-purple-400" />
                       </div>
-                    )}
-                  </div>
-                  
-                  {group.description && (
-                    <p className="text-gray-400 text-sm mb-6 line-clamp-2">
-                      {group.description}
-                    </p>
-                  )}
-                  
-                  <div className="flex items-center gap-2 mb-6">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg text-sm font-bold border border-cyan-500/50">
-                      <Users size={14} />
-                      {group.memberCount || 0} MEMBERS
+                      {group.userRole === 'admin' && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                          <Shield className="w-3 h-3" />
+                          Admin
+                        </span>
+                      )}
                     </div>
-                    
-                    {group.isPrivate && (
-                      <div className="px-3 py-2 bg-gray-500/20 text-gray-400 rounded-lg text-sm font-bold border border-gray-500/50">
-                        PRIVATE
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="pt-4 border-t border-cyan-500/20">
-                    <div className="text-xs text-gray-500 mb-1">INVITE CODE</div>
-                    <div className="font-mono font-bold text-cyan-400 text-lg tracking-wider">
-                      {group.inviteCode}
+
+                    <div>
+                      <h3 className="text-lg font-bold text-white group-hover:text-purple-300 transition-colors">
+                        {group.name}
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-1 line-clamp-2 leading-relaxed">
+                        {group.description || 'Live peer group for algorithmic problem solving.'}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Hover glow effect */}
-                  <div className="mt-4 h-[2px] w-full bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </NavLink>
-            ))}
-          </div>
-        )}
-      </div>
+                  <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400 font-mono font-medium">
+                        {group.memberCount || 1} members
+                      </span>
+                      {group.isPrivate ? (
+                        <Lock className="w-3.5 h-3.5 text-zinc-500" title="Private Group" />
+                      ) : (
+                        <Globe className="w-3.5 h-3.5 text-zinc-500" title="Public Group" />
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 text-purple-400 font-semibold group-hover:translate-x-1 transition-transform">
+                      <span>Enter</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                </NavLink>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </main>
 
       {/* Create Group Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-gray-900 to-black border border-cyan-500/50 rounded-2xl max-w-md w-full shadow-2xl shadow-cyan-500/20 animate-fadeIn">
-            <div className="p-8">
-              <h3 className="text-2xl font-black mb-6 bg-gradient-to-r from-cyan-400 to-purple-600 bg-clip-text text-transparent">
-                CREATE STUDY GROUP
-              </h3>
-              <form onSubmit={handleCreateGroup} className="space-y-6">
-                <div>
-                  <label className="block text-cyan-400 text-sm font-bold mb-2">
-                    GROUP NAME
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., DSA Warriors"
-                    className="w-full px-4 py-3 bg-gray-900/50 border border-cyan-500/30 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/50 transition-all"
-                    value={createForm.name}
-                    onChange={(e) => setCreateForm({...createForm, name: e.target.value})}
-                    required
-                    maxLength={100}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-cyan-400 text-sm font-bold mb-2">
-                    DESCRIPTION (OPTIONAL)
-                  </label>
-                  <textarea
-                    placeholder="What's your group about?"
-                    className="w-full px-4 py-3 bg-gray-900/50 border border-cyan-500/30 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/50 transition-all resize-none"
-                    rows={3}
-                    value={createForm.description}
-                    onChange={(e) => setCreateForm({...createForm, description: e.target.value})}
-                    maxLength={500}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-cyan-400 text-sm font-bold mb-2">
-                    MAX MEMBERS
-                  </label>
-                  <input
-                    type="number"
-                    min={2}
-                    max={100}
-                    className="w-full px-4 py-3 bg-gray-900/50 border border-cyan-500/30 rounded-xl text-white focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/50 transition-all"
-                    value={createForm.maxMembers}
-                    onChange={(e) => setCreateForm({...createForm, maxMembers: parseInt(e.target.value)})}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-gray-900/50 border border-cyan-500/30 rounded-xl">
-                  <span className="text-white font-bold">PRIVATE GROUP</span>
-                  <button
-                    type="button"
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      createForm.isPrivate ? 'bg-cyan-500' : 'bg-gray-700'
-                    }`}
-                    onClick={() => setCreateForm({...createForm, isPrivate: !createForm.isPrivate})}
-                  >
-                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
-                      createForm.isPrivate ? 'translate-x-8' : 'translate-x-1'
-                    }`} />
-                  </button>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-all"
-                    onClick={() => setShowCreateModal(false)}
-                  >
-                    CANCEL
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-xl font-bold hover:shadow-2xl hover:shadow-cyan-500/50 transition-all transform hover:scale-105"
-                  >
-                    CREATE
-                  </button>
-                </div>
-              </form>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-white/[0.1] rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white">Create Study Group</h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
             </div>
+
+            <form onSubmit={handleCreateGroup} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-300">Group Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Dynamic Programming Squad"
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                  required
+                  maxLength={100}
+                  className="w-full px-3.5 py-2.5 bg-zinc-950 border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-300">Description (Optional)</label>
+                <textarea
+                  placeholder="Focus topics, meeting schedule, or goals..."
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full px-3.5 py-2.5 bg-zinc-950 border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-300">Max Member Capacity</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={100}
+                  value={createForm.maxMembers}
+                  onChange={(e) => setCreateForm({ ...createForm, maxMembers: parseInt(e.target.value) || 50 })}
+                  className="w-full px-3.5 py-2.5 bg-zinc-950 border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-500/20 transition-all"
+                >
+                  Create Room
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
       {/* Join Group Modal */}
       {showJoinModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-gray-900 to-black border border-purple-500/50 rounded-2xl max-w-md w-full shadow-2xl shadow-purple-500/20 animate-fadeIn">
-            <div className="p-8">
-              <h3 className="text-2xl font-black mb-6 bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-                JOIN STUDY GROUP
-              </h3>
-              <form onSubmit={handleJoinGroup} className="space-y-6">
-                <div>
-                  <label className="block text-purple-400 text-sm font-bold mb-2">
-                    INVITE CODE
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="ENTER 8-CHARACTER CODE"
-                    className="w-full px-4 py-3 bg-gray-900/50 border border-purple-500/30 rounded-xl text-white font-mono text-lg tracking-wider uppercase placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all text-center"
-                    value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                    required
-                    maxLength={8}
-                  />
-                  <p className="text-gray-500 text-xs mt-2">
-                    Ask your group admin for the invite code
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-all"
-                    onClick={() => setShowJoinModal(false)}
-                  >
-                    CANCEL
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl font-bold hover:shadow-2xl hover:shadow-purple-500/50 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={inviteCode.length !== 8}
-                  >
-                    JOIN
-                  </button>
-                </div>
-              </form>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-white/[0.1] rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white">Join Study Group</h3>
+              <button
+                onClick={() => setShowJoinModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
             </div>
+
+            <form onSubmit={handleJoinGroup} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-300">8-Character Invite Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g., A7X9Q2K1"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  required
+                  maxLength={12}
+                  className="w-full px-3.5 py-3 bg-zinc-950 border border-white/[0.08] rounded-xl text-sm text-center font-mono font-bold tracking-widest text-purple-400 uppercase placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                />
+                <p className="text-[11px] text-zinc-500">Ask your group host for the unique invite code.</p>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowJoinModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!inviteCode.trim()}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-40 transition-all"
+                >
+                  Join Group
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
-
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
-        }
-
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .animate-float {
-          animation: float 3s ease-in-out infinite;
-        }
-
-        .animate-fadeIn {
-          animation: fadeIn 0.6s ease-out forwards;
-          opacity: 0;
-        }
-      `}</style>
     </div>
   );
 }
