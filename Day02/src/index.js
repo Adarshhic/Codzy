@@ -135,10 +135,17 @@ const PORT = process.env.PORT || 5000;
 
 const initializeConnections = async () => {
   try {
-    await Promise.all([
-      main(),                 // MongoDB
-      redisClient.connect()   // Redis
-    ]);
+    // 1️⃣ Connect PostgreSQL via Prisma
+    await main();
+
+    // 2️⃣ Connect Redis (optional cache/blacklist layer - non-blocking)
+    if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+      try {
+        await redisClient.connect();
+      } catch (redisErr) {
+        console.warn('⚠️ Redis connection failed (running without token blacklist cache):', redisErr.message);
+      }
+    }
 
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);

@@ -1,13 +1,30 @@
 const { createClient } = require('redis');
 
-const redisOptions = process.env.REDIS_URL
-  ? { url: process.env.REDIS_URL }
-  : {
-      username: process.env.REDIS_USERNAME || 'default',
-      password: process.env.REDIS_PASSWORD || 'yzmMpO3JK5ikEdx2y302kZbjPai8BuZr',
+const redisUrl = process.env.REDIS_URL;
+
+const redisOptions = redisUrl
+  ? {
+      url: redisUrl,
       socket: {
-        host: process.env.REDIS_HOST || 'redis-10468.c100.us-east-1-4.ec2.cloud.redislabs.com',
-        port: parseInt(process.env.REDIS_PORT, 10) || 10468
+        reconnectStrategy: (retries) => {
+          if (retries > 3) {
+            console.warn('⚠️ Redis unreachable. Disabling auto-reconnect.');
+            return false;
+          }
+          return Math.min(retries * 1000, 3000);
+        }
+      }
+    }
+  : {
+      socket: {
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+        reconnectStrategy: (retries) => {
+          if (retries > 3) {
+            return false;
+          }
+          return Math.min(retries * 1000, 3000);
+        }
       }
     };
 
@@ -17,8 +34,14 @@ redisClient.on('connect', () => {
   console.log('✅ Connected to Redis');
 });
 
+let lastLoggedError = 0;
 redisClient.on('error', (err) => {
-  console.error('⚠️ Redis Client Error:', err.message || err);
+  const now = Date.now();
+  // Throttle error logs to once every 10 seconds to prevent console flooding
+  if (now - lastLoggedError > 10000) {
+    console.warn('⚠️ Redis Client Warning (non-fatal):', err.message || err);
+    lastLoggedError = now;
+  }
 });
 
 module.exports = redisClient;
