@@ -10,6 +10,9 @@ RUN npm ci --only=production
 # Copy application source code
 COPY . .
 
+# Generate Prisma Client for PostgreSQL
+RUN npx prisma generate
+
 # Set default environment variables
 ENV NODE_ENV=production
 ENV PORT=5000

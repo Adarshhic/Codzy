@@ -1,6 +1,6 @@
-const GroupMessage = require('../models/GroupMessage');
-const GroupMember = require('../models/GroupMember');
-const GroupProgress = require('../models/GroupProgress');
+const prisma = require('../config/prisma');
+const { generateId } = require('../utils/idGenerator');
+const serializeWithId = require('../utils/responseSerializer');
 
 // In-memory storage for active connections
 const activeRooms = new Map(); // roomId -> Set of socket objects
@@ -12,15 +12,14 @@ const initializeSocket = (io) => {
   // Middleware to authenticate socket connections
   io.use(async (socket, next) => {
     try {
-      // Extract user info from handshake (assuming JWT is passed)
       const userId = socket.handshake.auth.userId;
       const username = socket.handshake.auth.username;
-      
+
       if (!userId || !username) {
         return next(new Error('Authentication failed'));
       }
-      
-      socket.userId = userId;
+
+      socket.userId = userId.toString();
       socket.username = username;
       next();
     } catch (error) {
@@ -32,10 +31,7 @@ const initializeSocket = (io) => {
     console.log(`✅ User connected: ${socket.username} (${socket.id})`);
 
     // ==================== INTERVIEW SESSION HANDLERS ====================
-    
-    /**
-     * Join an interview session room
-     */
+
     socket.on('join-interview', (sessionId) => {
       if (!sessionId) {
         console.error('No sessionId provided for join-interview');
@@ -44,40 +40,32 @@ const initializeSocket = (io) => {
 
       console.log(`Socket ${socket.id} joining interview session: ${sessionId}`);
 
-      // Leave any previous interview session
       const previousSession = interviewUserSockets.get(socket.id)?.sessionId;
       if (previousSession && previousSession !== sessionId) {
         handleLeaveInterview(socket, previousSession);
       }
 
-      // Join the interview room
       socket.join(`interview-${sessionId}`);
 
-      // Track the session
       if (!interviewSessions.has(sessionId)) {
         interviewSessions.set(sessionId, new Set());
       }
       interviewSessions.get(sessionId).add(socket.id);
 
-      // Store user info
       interviewUserSockets.set(socket.id, {
         socketId: socket.id,
         sessionId,
         joinedAt: new Date(),
       });
 
-      // Notify all participants about active users
       const activeUsers = interviewSessions.get(sessionId).size;
       io.to(`interview-${sessionId}`).emit('active-users', { count: activeUsers });
 
       socket.emit('joined-interview', { sessionId, activeUsers });
-      
+
       console.log(`Session ${sessionId} now has ${activeUsers} active user(s)`);
     });
 
-    /**
-     * Handle code changes in interview
-     */
     socket.on('code-change', ({ sessionId, code, language }) => {
       if (!sessionId) {
         console.error('No sessionId provided for code-change');
@@ -90,9 +78,6 @@ const initializeSocket = (io) => {
         return;
       }
 
-      console.log(`Code change in session ${sessionId} from ${socket.id}`);
-
-      // Broadcast to all other participants in the session (except sender)
       socket.to(`interview-${sessionId}`).emit('code-update', {
         code,
         language,
@@ -101,9 +86,6 @@ const initializeSocket = (io) => {
       });
     });
 
-    /**
-     * Handle language changes in interview
-     */
     socket.on('language-change', ({ sessionId, language }) => {
       if (!sessionId) {
         console.error('No sessionId provided for language-change');
@@ -116,9 +98,6 @@ const initializeSocket = (io) => {
         return;
       }
 
-      console.log(`Language change in session ${sessionId}: ${language}`);
-
-      // Broadcast to all other participants
       socket.to(`interview-${sessionId}`).emit('language-change', {
         language,
         userId: socket.id,
@@ -126,9 +105,6 @@ const initializeSocket = (io) => {
       });
     });
 
-    /**
-     * Leave interview session
-     */
     socket.on('leave-interview', (sessionId) => {
       handleLeaveInterview(socket, sessionId);
     });
@@ -137,10 +113,13 @@ const initializeSocket = (io) => {
 
     socket.on('join-room', async ({ roomId, groupId, sessionId }) => {
       try {
-        // Verify user is a member of the group
-        const member = await GroupMember.findOne({
-          groupId: groupId,
-          userId: socket.userId
+        const member = await prisma.groupMember.findUnique({
+          where: {
+            groupId_userId: {
+              groupId: groupId,
+              userId: socket.userId
+            }
+          }
         });
 
         if (!member) {
@@ -148,26 +127,27 @@ const initializeSocket = (io) => {
           return;
         }
 
-        // Join the room
         socket.join(roomId);
         socket.currentRoom = roomId;
         socket.currentGroupId = groupId;
         socket.currentSessionId = sessionId;
 
-        // Track active users
         if (!activeRooms.has(roomId)) {
           activeRooms.set(roomId, new Set());
         }
         activeRooms.get(roomId).add(socket);
         userSocketMap.set(socket.userId, socket.id);
 
-        // Update last active time
-        await GroupMember.findOneAndUpdate(
-          { groupId: groupId, userId: socket.userId },
-          { lastActive: new Date() }
-        );
+        await prisma.groupMember.update({
+          where: {
+            groupId_userId: {
+              groupId: groupId,
+              userId: socket.userId
+            }
+          },
+          data: { lastActive: new Date() }
+        });
 
-        // Get current room participants
         const roomSockets = Array.from(activeRooms.get(roomId));
         const participants = roomSockets.map(s => ({
           userId: s.userId,
@@ -175,30 +155,31 @@ const initializeSocket = (io) => {
           socketId: s.id
         }));
 
-        // Notify others that user joined
         socket.to(roomId).emit('user-joined', {
           userId: socket.userId,
           username: socket.username,
           timestamp: new Date()
         });
 
-        // Send current participants to the new user
         socket.emit('room-users', {
           participants,
           count: participants.length
         });
 
-        // Send system message
-        const systemMessage = await GroupMessage.create({
-          groupId: groupId,
-          sessionId: sessionId,
-          userId: socket.userId,
-          message: `${socket.username} joined the session`,
-          messageType: 'system'
+        const systemMessage = await prisma.groupMessage.create({
+          data: {
+            id: generateId(),
+            groupId: groupId,
+            sessionId: sessionId || null,
+            userId: socket.userId,
+            message: `${socket.username} joined the session`,
+            messageType: 'system'
+          }
         });
 
         io.to(roomId).emit('receive-message', {
-          _id: systemMessage._id,
+          _id: systemMessage.id,
+          id: systemMessage.id,
           userId: socket.userId,
           username: socket.username,
           message: systemMessage.message,
@@ -215,24 +196,28 @@ const initializeSocket = (io) => {
 
     socket.on('send-message', async ({ roomId, groupId, sessionId, message, messageType = 'text' }) => {
       try {
-        const newMessage = await GroupMessage.create({
-          groupId: groupId,
-          sessionId: sessionId,
-          userId: socket.userId,
-          message: message,
-          messageType: messageType
+        const newMessage = await prisma.groupMessage.create({
+          data: {
+            id: generateId(),
+            groupId: groupId,
+            sessionId: sessionId || null,
+            userId: socket.userId,
+            message: message,
+            messageType: messageType
+          },
+          include: {
+            user: { select: { id: true, FirstName: true, EmailId: true } }
+          }
         });
 
-        const populatedMessage = await GroupMessage.findById(newMessage._id)
-          .populate('userId', 'FirstName EmailId');
-
         io.to(roomId).emit('receive-message', {
-          _id: populatedMessage._id,
-          userId: populatedMessage.userId._id,
-          username: populatedMessage.userId.FirstName,
-          message: populatedMessage.message,
-          messageType: populatedMessage.messageType,
-          timestamp: populatedMessage.createdAt
+          _id: newMessage.id,
+          id: newMessage.id,
+          userId: newMessage.userId,
+          username: newMessage.user?.FirstName || socket.username,
+          message: newMessage.message,
+          messageType: newMessage.messageType,
+          timestamp: newMessage.createdAt
         });
 
         console.log(`💬 Message in ${roomId} from ${socket.username}`);
@@ -263,9 +248,13 @@ const initializeSocket = (io) => {
 
     socket.on('problem-change', async ({ roomId, groupId, problemId, problemTitle }) => {
       try {
-        const member = await GroupMember.findOne({
-          groupId: groupId,
-          userId: socket.userId
+        const member = await prisma.groupMember.findUnique({
+          where: {
+            groupId_userId: {
+              groupId: groupId,
+              userId: socket.userId
+            }
+          }
         });
 
         if (!member || (member.role !== 'admin' && member.role !== 'moderator')) {
@@ -280,16 +269,20 @@ const initializeSocket = (io) => {
           timestamp: new Date()
         });
 
-        const systemMessage = await GroupMessage.create({
-          groupId: groupId,
-          sessionId: socket.currentSessionId,
-          userId: socket.userId,
-          message: `${socket.username} changed the problem to: ${problemTitle}`,
-          messageType: 'system'
+        const systemMessage = await prisma.groupMessage.create({
+          data: {
+            id: generateId(),
+            groupId: groupId,
+            sessionId: socket.currentSessionId || null,
+            userId: socket.userId,
+            message: `${socket.username} changed the problem to: ${problemTitle}`,
+            messageType: 'system'
+          }
         });
 
         io.to(roomId).emit('receive-message', {
-          _id: systemMessage._id,
+          _id: systemMessage.id,
+          id: systemMessage.id,
           userId: socket.userId,
           username: socket.username,
           message: systemMessage.message,
@@ -306,19 +299,39 @@ const initializeSocket = (io) => {
 
     socket.on('problem-solved', async ({ roomId, groupId, problemId, problemTitle }) => {
       try {
-        let progress = await GroupProgress.findOne({ groupId, problemId });
+        let progress = await prisma.groupProgress.findUnique({
+          where: {
+            groupId_problemId: {
+              groupId: groupId,
+              problemId: problemId
+            }
+          }
+        });
 
         if (!progress) {
-          progress = await GroupProgress.create({
-            groupId: groupId,
-            problemId: problemId,
-            solvedBy: [socket.userId],
-            completedAt: new Date()
+          progress = await prisma.groupProgress.create({
+            data: {
+              id: generateId(),
+              groupId: groupId,
+              problemId: problemId,
+              completedAt: new Date()
+            }
           });
-        } else if (!progress.solvedBy.includes(socket.userId)) {
-          progress.solvedBy.push(socket.userId);
-          await progress.save();
         }
+
+        await prisma.groupProgressSolver.upsert({
+          where: {
+            progressId_userId: {
+              progressId: progress.id,
+              userId: socket.userId
+            }
+          },
+          create: {
+            progressId: progress.id,
+            userId: socket.userId
+          },
+          update: {}
+        });
 
         io.to(roomId).emit('user-solved-problem', {
           userId: socket.userId,
@@ -327,16 +340,20 @@ const initializeSocket = (io) => {
           timestamp: new Date()
         });
 
-        const systemMessage = await GroupMessage.create({
-          groupId: groupId,
-          sessionId: socket.currentSessionId,
-          userId: socket.userId,
-          message: `🎉 ${socket.username} solved the problem!`,
-          messageType: 'system'
+        const systemMessage = await prisma.groupMessage.create({
+          data: {
+            id: generateId(),
+            groupId: groupId,
+            sessionId: socket.currentSessionId || null,
+            userId: socket.userId,
+            message: `🎉 ${socket.username} solved the problem!`,
+            messageType: 'system'
+          }
         });
 
         io.to(roomId).emit('receive-message', {
-          _id: systemMessage._id,
+          _id: systemMessage.id,
+          id: systemMessage.id,
           userId: socket.userId,
           username: socket.username,
           message: systemMessage.message,
@@ -382,16 +399,20 @@ const initializeSocket = (io) => {
         });
 
         if (groupId && socket.currentSessionId) {
-          const systemMessage = await GroupMessage.create({
-            groupId: groupId,
-            sessionId: socket.currentSessionId,
-            userId: socket.userId,
-            message: `${socket.username} left the session`,
-            messageType: 'system'
+          const systemMessage = await prisma.groupMessage.create({
+            data: {
+              id: generateId(),
+              groupId: groupId,
+              sessionId: socket.currentSessionId,
+              userId: socket.userId,
+              message: `${socket.username} left the session`,
+              messageType: 'system'
+            }
           });
 
           io.to(roomId).emit('receive-message', {
-            _id: systemMessage._id,
+            _id: systemMessage.id,
+            id: systemMessage.id,
             userId: socket.userId,
             username: socket.username,
             message: systemMessage.message,
@@ -409,13 +430,11 @@ const initializeSocket = (io) => {
     // ==================== DISCONNECT ====================
     socket.on('disconnect', async () => {
       try {
-        // Clean up interview session if user was in one
         const interviewInfo = interviewUserSockets.get(socket.id);
         if (interviewInfo?.sessionId) {
           handleLeaveInterview(socket, interviewInfo.sessionId);
         }
 
-        // Clean up study group room
         const roomId = socket.currentRoom;
         const groupId = socket.currentGroupId;
 
@@ -435,16 +454,20 @@ const initializeSocket = (io) => {
           });
 
           if (groupId && socket.currentSessionId) {
-            const systemMessage = await GroupMessage.create({
-              groupId: groupId,
-              sessionId: socket.currentSessionId,
-              userId: socket.userId,
-              message: `${socket.username} disconnected`,
-              messageType: 'system'
+            const systemMessage = await prisma.groupMessage.create({
+              data: {
+                id: generateId(),
+                groupId: groupId,
+                sessionId: socket.currentSessionId,
+                userId: socket.userId,
+                message: `${socket.username} disconnected`,
+                messageType: 'system'
+              }
             });
 
             io.to(roomId).emit('receive-message', {
-              _id: systemMessage._id,
+              _id: systemMessage.id,
+              id: systemMessage.id,
               userId: socket.userId,
               username: socket.username,
               message: systemMessage.message,
@@ -461,28 +484,19 @@ const initializeSocket = (io) => {
     });
   });
 
-  /**
-   * Helper function to handle leaving an interview
-   */
   function handleLeaveInterview(socket, sessionId) {
     if (!sessionId) return;
 
     console.log(`Socket ${socket.id} leaving interview session: ${sessionId}`);
-
-    // Leave the room
     socket.leave(`interview-${sessionId}`);
 
-    // Remove from tracking
     const session = interviewSessions.get(sessionId);
     if (session) {
       session.delete(socket.id);
-      
-      // If session is empty, clean it up
       if (session.size === 0) {
         interviewSessions.delete(sessionId);
         console.log(`Session ${sessionId} is now empty and cleaned up`);
       } else {
-        // Update active users count for remaining participants
         io.to(`interview-${sessionId}`).emit('active-users', { count: session.size });
       }
     }
@@ -490,7 +504,7 @@ const initializeSocket = (io) => {
     interviewUserSockets.delete(socket.id);
   }
 
-  console.log('🚀 Socket.io server initialized with interview support');
+  console.log('🚀 Socket.io server initialized with PostgreSQL support');
 };
 
 module.exports = initializeSocket;

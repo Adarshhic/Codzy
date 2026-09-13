@@ -26,7 +26,8 @@ const defaultOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:5000',
-  'https://codzy-five.vercel.app'
+  'https://codzy-five.vercel.app',
+  'https://codzy-code.vercel.app'
 ];
 const configuredOrigins = (process.env.CLIENT_URL || '')
   .split(',')

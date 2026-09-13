@@ -1,8 +1,7 @@
 const { runCodeWithPiston } = require('../utils/problemUtility');
-const User = require("../models/user"); // <- Add this line
-const Problem = require("../models/problem");
-const Submission = require("../models/Submission");
-const SolutionVideo = require("../models/solutionVideo");
+const prisma = require('../config/prisma');
+const { generateId } = require('../utils/idGenerator');
+const serializeWithId = require('../utils/responseSerializer');
 
 const CreateProblem = async (req, res) => {
   try {
@@ -17,56 +16,59 @@ const CreateProblem = async (req, res) => {
       referenceSolutions
     } = req.body;
 
+    const creatorId = req.user.id || req.user._id;
+
     // 🔁 Check each reference solution
-    for (const { language, CompleteCode } of referenceSolutions) {
+    if (referenceSolutions && visibleTestCases) {
+      for (const { language, CompleteCode } of referenceSolutions) {
+        for (const testCase of visibleTestCases) {
+          const input = Array.isArray(testCase.input) ? testCase.input.join('\n') : (testCase.input || '');
+          const expectedOutput = Array.isArray(testCase.output) ? testCase.output.join('\n').trim() : (testCase.output || '').trim();
 
-      // 🔁 Run reference solution on each visible test case
-      for (const testCase of visibleTestCases) {
-
-        const input = testCase.input.join('\n');
-        const expectedOutput = testCase.output.join('\n').trim();
-
-        const result = await runCodeWithPiston({
-          language,
-          code: CompleteCode,
-          input
-        });
-
-        const actualOutput = result.stdout.trim();
-
-        // ❌ If output mismatch
-        if (actualOutput !== expectedOutput) {
-          return res.status(400).json({
-            message: "Reference solution is not passing all test cases"
+          const result = await runCodeWithPiston({
+            language,
+            code: CompleteCode,
+            input
           });
-        }
 
-        // ❌ Runtime / compilation error
-        if (result.stderr) {
-          return res.status(400).json({
-            message: "Reference solution has runtime/compile error",
-            error: result.stderr
-          });
+          const actualOutput = (result.stdout || '').trim();
+
+          if (actualOutput !== expectedOutput) {
+            return res.status(400).json({
+              message: "Reference solution is not passing all test cases"
+            });
+          }
+
+          if (result.stderr) {
+            return res.status(400).json({
+              message: "Reference solution has runtime/compile error",
+              error: result.stderr
+            });
+          }
         }
       }
     }
 
-    // ✅ Save problem in DB
-    const userProblem = await Problem.create({
-      title,
-      description,
-      difficulty,
-      tags,
-      visibleTestCases,
-      hiddenTestCases,
-      startCode,
-      referenceSolutions,
-      problemCreator: req.user._id
+    const problemId = generateId();
+
+    const userProblem = await prisma.problem.create({
+      data: {
+        id: problemId,
+        title,
+        description,
+        difficulty,
+        tags,
+        visibleTestCases,
+        hiddenTestCases,
+        startCode,
+        referenceSolutions,
+        problemCreatorId: creatorId
+      }
     });
 
     res.status(201).json({
       message: "Problem created successfully",
-      problemId: userProblem._id
+      problemId: userProblem.id
     });
 
   } catch (error) {
@@ -77,13 +79,13 @@ const CreateProblem = async (req, res) => {
   }
 };
 
-
-  // Implementation for updating a problem
- const UpdateProblem = async (req, res) => {
+const UpdateProblem = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const problem = await Problem.findById(id);
+    const problem = await prisma.problem.findUnique({
+      where: { id }
+    });
     if (!problem) {
       return res.status(404).json({ message: "Problem not found" });
     }
@@ -93,9 +95,8 @@ const CreateProblem = async (req, res) => {
 
       for (const { language, CompleteCode } of referenceSolutions) {
         for (const testCase of visibleTestCases) {
-
-          const input = testCase.input.join('\n');
-          const expectedOutput = testCase.output.join('\n').trim();
+          const input = Array.isArray(testCase.input) ? testCase.input.join('\n') : (testCase.input || '');
+          const expectedOutput = Array.isArray(testCase.output) ? testCase.output.join('\n').trim() : (testCase.output || '').trim();
 
           const result = await runCodeWithPiston({
             language,
@@ -110,7 +111,7 @@ const CreateProblem = async (req, res) => {
             });
           }
 
-          if (result.stdout.trim() !== expectedOutput) {
+          if ((result.stdout || '').trim() !== expectedOutput) {
             return res.status(400).json({
               message: "Reference solution failed test cases"
             });
@@ -119,15 +120,18 @@ const CreateProblem = async (req, res) => {
       }
     }
 
-    const updatedProblem = await Problem.findByIdAndUpdate(
-      id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const updateData = { ...req.body };
+    delete updateData.id;
+    delete updateData._id;
+
+    const updatedProblem = await prisma.problem.update({
+      where: { id },
+      data: updateData
+    });
 
     res.status(200).json({
       message: "Problem updated successfully",
-      problem: updatedProblem
+      problem: serializeWithId(updatedProblem)
     });
 
   } catch (error) {
@@ -141,20 +145,22 @@ const CreateProblem = async (req, res) => {
 const DeleteProblem = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id || req.user._id;
 
-    // 1️⃣ Check if the problem exists
-    const problem = await Problem.findById(id);
+    const problem = await prisma.problem.findUnique({
+      where: { id }
+    });
     if (!problem) {
       return res.status(404).json({ message: "Problem not found" });
     }
 
-    // 2️⃣ Optional: Only the creator or admin can delete
-    if (problem.problemCreator.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+    if (problem.problemCreatorId !== userId && req.user.role !== 'Admin') {
       return res.status(403).json({ message: "Forbidden: Not allowed to delete this problem" });
     }
 
-    // 3️⃣ Delete the problem
-    await Problem.findByIdAndDelete(id);
+    await prisma.problem.delete({
+      where: { id }
+    });
 
     res.status(200).json({ message: "Problem deleted successfully" });
   } catch (error) {
@@ -163,49 +169,43 @@ const DeleteProblem = async (req, res) => {
       error: error.message
     });
   }
-}
+};
 
-
-// GET Problem by ID (user-specific)
 const getProblemById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Find problem by ID
-    const problem = await Problem.findById(id);
+    const problem = await prisma.problem.findUnique({
+      where: { id }
+    });
     if (!problem) {
       return res.status(404).json({ message: "Problem not found" });
     }
 
-    // 2️⃣ Optional: You can hide hiddenTestCases for normal users
-    const responseProblem = {
-      _id: problem._id,
+    const video = await prisma.solutionVideo.findFirst({
+      where: { problemId: id }
+    });
+
+    if (video) {
+      const responseData = serializeWithId({
+        ...problem,
+        secureUrl: video.secureUrl,
+        thumbnailUrl: video.thumbnailUrl,
+        duration: video.duration
+      });
+      return res.status(200).json(responseData);
+    }
+
+    const responseProblem = serializeWithId({
+      _id: problem.id,
+      id: problem.id,
       title: problem.title,
       description: problem.description,
       difficulty: problem.difficulty,
       tags: problem.tags,
       visibleTestCases: problem.visibleTestCases,
-      startCode: problem.startCode,
-      // Do NOT send hiddenTestCases to users
-    };
- 
-      if(!problem)
-         return res.status(404).send("Problem is Missing");
-     
-        const videos = await SolutionVideo.findOne({problemId:id});
-     
-        if(videos){   
-         
-        const responseData = {
-         ...problem.toObject(),
-         secureUrl:videos.secureUrl,
-         thumbnailUrl : videos.thumbnailUrl,
-         duration : videos.duration,
-        } 
-       
-        return res.status(200).send(responseData);
-        }
-         
+      startCode: problem.startCode
+    });
 
     res.status(200).json({ problem: responseProblem });
   } catch (error) {
@@ -213,25 +213,29 @@ const getProblemById = async (req, res) => {
   }
 };
 
-// GET all problems (user-specific)
 const getAllProblem = async (req, res) => {
   try {
-    // 1️⃣ Fetch all problems from DB
-    const problems = await Problem.find({}).select('_id title difficulty tags');
-    if (!problems || problems.length === 0) {
-      return res.status(200).json({ problems: [] });
-    }
+    const problems = await prisma.problem.findMany({
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        difficulty: true,
+        tags: true,
+        visibleTestCases: true,
+        startCode: true
+      }
+    });
 
-    // 2️⃣ Map to hide hiddenTestCases from normal users
-    const responseProblems = problems.map(problem => ({
-      _id: problem._id,
+    const responseProblems = problems.map(problem => serializeWithId({
+      _id: problem.id,
+      id: problem.id,
       title: problem.title,
       description: problem.description,
       difficulty: problem.difficulty,
       tags: problem.tags,
       visibleTestCases: problem.visibleTestCases,
       startCode: problem.startCode
-      // hiddenTestCases not included
     }));
 
     res.status(200).json({ problems: responseProblems });
@@ -242,24 +246,27 @@ const getAllProblem = async (req, res) => {
 
 const solvedAllProblembyUser = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Find user and populate solved problems
-    const user = await User.findById(userId)
-      .populate({
-        path: 'problemsSolved',
-        select: '_id title difficulty tags'
-      });
+    const solvedRecords = await prisma.userSolvedProblem.findMany({
+      where: { userId },
+      include: {
+        problem: {
+          select: {
+            id: true,
+            title: true,
+            difficulty: true,
+            tags: true
+          }
+        }
+      }
+    });
 
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found"
-      });
-    }
+    const problems = solvedRecords.map(r => serializeWithId(r.problem));
 
     res.status(200).json({
-      count: user.problemsSolved.length,
-      problems: user.problemsSolved
+      count: problems.length,
+      problems
     });
 
   } catch (error) {
@@ -270,24 +277,36 @@ const solvedAllProblembyUser = async (req, res) => {
   }
 };
 
-// In submittedProblem function (around line 248)
-const submittedProblem = async (req, res) => { 
+const submittedProblem = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const problemId = req.params.id; // ✅ Now matches route parameter
-    const ans = await Submission.find({userId, problemId});
-  
-    if (ans.length == 0) {
-      return res.status(200).json({ // ✅ Added return and changed to json
-        message: "No Submission is present", 
-        submissions: [] 
+    const userId = req.user.id || req.user._id;
+    const problemId = req.params.id;
+
+    const submissions = await prisma.submission.findMany({
+      where: { userId, problemId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (submissions.length === 0) {
+      return res.status(200).json({
+        message: "No Submission is present",
+        submissions: []
       });
     }
 
-    res.status(200).json(ans); // ✅ Changed to json
+    res.status(200).json(serializeWithId(submissions));
   } catch (err) {
-    console.error(err); // ✅ Log the error for debugging
+    console.error(err);
     res.status(500).json({ message: "Internal Server Error", error: err.message });
   }
-}
-module.exports = { CreateProblem, UpdateProblem , DeleteProblem, getProblemById , getAllProblem  , solvedAllProblembyUser, submittedProblem };
+};
+
+module.exports = {
+  CreateProblem,
+  UpdateProblem,
+  DeleteProblem,
+  getProblemById,
+  getAllProblem,
+  solvedAllProblembyUser,
+  submittedProblem
+};

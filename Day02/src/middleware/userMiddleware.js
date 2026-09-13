@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/user');
+const prisma = require('../config/prisma');
 const redisClient = require('../config/redis');
 
 const userMiddleware = async (req, res, next) => {
@@ -13,7 +13,7 @@ const userMiddleware = async (req, res, next) => {
       });
     }
 
-    // 1️⃣ Check Redis blacklist (with fallback if Redis is unreachable)
+    // 1️⃣ Check Redis blacklist
     try {
       if (redisClient.isOpen) {
         const isBlocked = await redisClient.exists(`token:${token}`);
@@ -29,24 +29,40 @@ const userMiddleware = async (req, res, next) => {
 
     // 2️⃣ Verify JWT
     const payload = jwt.verify(token, process.env.JWT_KEY);
-    const { _id } = payload;
+    const userId = payload._id || payload.id;
 
-    if (!_id) {
+    if (!userId) {
       return res.status(401).json({
         message: 'Unauthorized: Invalid token'
       });
     }
 
-    // 3️⃣ Fetch user from DB
-    const user = await User.findById(_id).select('-password');
+    // 3️⃣ Fetch user from PostgreSQL
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        FirstName: true,
+        LastName: true,
+        EmailId: true,
+        age: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
     if (!user) {
       return res.status(401).json({
         message: 'Unauthorized: User not found'
       });
     }
 
-    // 4️⃣ Attach user to request
-    req.user = user;
+    // 4️⃣ Attach user to request (including _id for backward compatibility)
+    req.user = {
+      ...user,
+      _id: user.id
+    };
 
     next();
   } catch (err) {
@@ -58,4 +74,3 @@ const userMiddleware = async (req, res, next) => {
 
 module.exports = userMiddleware;
 module.exports.verifyToken = userMiddleware;
-

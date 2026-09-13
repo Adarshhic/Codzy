@@ -1,9 +1,9 @@
-const User = require('../models/user');
+const prisma = require('../config/prisma');
 const validate = require('../utils/validator');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const redisClient = require('../config/redis');
-const Submission = require('../models/Submission');
+const { generateId } = require('../utils/idGenerator');
 
 const getCookieOptions = () => {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -17,14 +17,17 @@ const getCookieOptions = () => {
 
 // Register User
 const register = async (req, res) => {
- try {
+  try {
     // 1. Validate input
-     validate(req.body);
+    validate(req.body);
 
-    const { EmailId, password } = req.body;
+    const { FirstName, LastName, EmailId, password, age } = req.body;
+    const normalizedEmail = EmailId.toLowerCase().trim();
 
     // 2. Check if user already exists
-    const existingUser = await User.findOne({ EmailId });
+    const existingUser = await prisma.user.findUnique({
+      where: { EmailId: normalizedEmail }
+    });
     if (existingUser) {
       return res.status(409).json({
         message: 'User already exists with this EmailId'
@@ -33,30 +36,37 @@ const register = async (req, res) => {
 
     // 3. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    req.body.password = hashedPassword;
 
-    // 4. Set role
-    req.body.role = 'User';
+    // 4. Create user with preserved 24-char hex string ID format
+    const user = await prisma.user.create({
+      data: {
+        id: generateId(),
+        FirstName,
+        LastName: LastName || null,
+        EmailId: normalizedEmail,
+        age: age ? parseInt(age, 10) : null,
+        password: hashedPassword,
+        role: 'User'
+      }
+    });
 
-    // 5. Create user
-    const user = await User.create(req.body);
-
-    // 6. Generate JWT
+    // 5. Generate JWT
     const token = jwt.sign(
-      { _id: user._id, EmailId: user.EmailId , role: user.role},
+      { _id: user.id, EmailId: user.EmailId, role: user.role },
       process.env.JWT_KEY,
       { expiresIn: '7d' }
     );
 
-    // 7. Set secure cookie
+    // 6. Set secure cookie
     res.cookie('token', token, getCookieOptions());
 
-    // 8. Send safe response
+    // 7. Send safe response
     res.status(201).json({
       message: 'User Registered Successfully',
       token,
       user: {
-         _id: user._id,
+        _id: user.id,
+        id: user.id,
         FirstName: user.FirstName,
         EmailId: user.EmailId,
         role: user.role
@@ -64,7 +74,7 @@ const register = async (req, res) => {
     });
 
   } catch (err) {
-    if (err.code === 11000) {
+    if (err.code === 'P2002' || err.code === 11000) {
       return res.status(409).json({
         message: 'EmailId already registered'
       });
@@ -78,22 +88,23 @@ const login = async (req, res) => {
   try {
     const { EmailId, password } = req.body;
 
-    // 1. Validate input
     if (!EmailId || !password) {
       return res.status(400).json({
         message: 'EmailId and password are required'
       });
     }
 
-    // 2. Find user
-    const user = await User.findOne({ EmailId });
+    const normalizedEmail = EmailId.toLowerCase().trim();
+    const user = await prisma.user.findUnique({
+      where: { EmailId: normalizedEmail }
+    });
+
     if (!user) {
       return res.status(401).json({
         message: 'Invalid EmailId or password'
       });
     }
 
-    // 3. Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({
@@ -101,22 +112,20 @@ const login = async (req, res) => {
       });
     }
 
-    // 4. Generate JWT
     const token = jwt.sign(
-      { _id: user._id, EmailId: user.EmailId , role: user.role },
+      { _id: user.id, EmailId: user.EmailId, role: user.role },
       process.env.JWT_KEY,
       { expiresIn: '7d' }
     );
 
-    // 5. Set secure cookie
     res.cookie('token', token, getCookieOptions());
 
-    // 6. Send safe response
     res.status(200).json({
       message: 'Login Successful',
       token,
       user: {
-        _id: user._id,
+        _id: user.id,
+        id: user.id,
         FirstName: user.FirstName,
         EmailId: user.EmailId,
         role: user.role
@@ -129,92 +138,102 @@ const login = async (req, res) => {
 };
 
 // Logout User
-const logout = async(req,res)=>{ 
-    try{
-      const token = req.cookies?.token || (req.headers?.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : null);
-      if (token) {
-        try {
-          const payload = jwt.decode(token);
-          if (payload && payload.exp) {
-            await redisClient.set(`token:${token}`, 'blocked');
-            await redisClient.expireAt(`token:${token}`, payload.exp);
-          }
-        } catch (redisErr) {
-          console.warn('Redis logout blacklist warning:', redisErr.message);
+const logout = async (req, res) => {
+  try {
+    const token = req.cookies?.token || (req.headers?.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : null);
+    if (token) {
+      try {
+        const payload = jwt.decode(token);
+        if (payload && payload.exp) {
+          await redisClient.set(`token:${token}`, 'blocked');
+          await redisClient.expireAt(`token:${token}`, payload.exp);
         }
+      } catch (redisErr) {
+        console.warn('Redis logout blacklist warning:', redisErr.message);
       }
-
-      const isProduction = process.env.NODE_ENV === 'production';
-      res.clearCookie('token', {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'none' : 'lax'
-      });
-      res.status(200).json({message:'Logout Successful'});
     }
-    catch(err){
-        res.status(500).json({message:err.message});
-    }   
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax'
+    });
+    res.status(200).json({ message: 'Logout Successful' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
 // Admin Register User
 const adminRegister = async (req, res) => {
   try {
-    // 1. Validate input
     validate(req.body);
 
-    const { EmailId, password } = req.body;
+    const { FirstName, LastName, EmailId, password, age } = req.body;
+    const normalizedEmail = EmailId.toLowerCase().trim();
 
-    // 2. Check existing user
-    const existingUser = await User.findOne({ EmailId });
+    const existingUser = await prisma.user.findUnique({
+      where: { EmailId: normalizedEmail }
+    });
     if (existingUser) {
       return res.status(409).json({ message: 'User already exists' });
     }
 
-    // 3. Hash password
-    req.body.password = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 4. Force admin role
-    req.body.role = 'Admin';
+    const user = await prisma.user.create({
+      data: {
+        id: generateId(),
+        FirstName,
+        LastName: LastName || null,
+        EmailId: normalizedEmail,
+        age: age ? parseInt(age, 10) : null,
+        password: hashedPassword,
+        role: 'Admin'
+      }
+    });
 
-    // 5. Create admin
-    const user = await User.create(req.body);
-
-    // 6. Generate JWT
     const token = jwt.sign(
-      { _id: user._id, EmailId: user.EmailId, role: user.role },
+      { _id: user.id, EmailId: user.EmailId, role: user.role },
       process.env.JWT_KEY,
       { expiresIn: '7d' }
     );
 
-    // 7. Set cookie
     res.cookie('token', token, getCookieOptions());
 
     res.status(201).json({
       message: 'Admin Registered Successfully',
       token,
       user: {
-        _id: user._id,
+        _id: user.id,
+        id: user.id,
         EmailId: user.EmailId,
         role: user.role
       }
     });
 
   } catch (err) {
+    if (err.code === 'P2002' || err.code === 11000) {
+      return res.status(409).json({ message: 'EmailId already registered' });
+    }
     res.status(400).json({ message: err.message });
   }
 };
 
 const deleteProfile = async (req, res) => {
   try {
-    const userId = req.user._id;
-    await User.findByIdAndDelete(userId);
+    const userId = req.user.id || req.user._id;
 
-    await Submission.deleteMany({ userId: userId });
-    
+    // With ON DELETE CASCADE in PostgreSQL, deleting the user automatically cascades to submissions, etc.
+    await prisma.user.delete({
+      where: { id: userId }
+    });
+
     res.status(200).json({ message: 'Profile deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
-module.exports = {register,login,logout,adminRegister,deleteProfile};
+
+module.exports = { register, login, logout, adminRegister, deleteProfile };

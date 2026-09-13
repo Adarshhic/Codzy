@@ -1,16 +1,17 @@
 # 🚀 Codzy - Production Deployment Guide
 
-This guide provides comprehensive, step-by-step instructions to deploy both the **Backend API** and **Frontend Client** of the Codzy platform (LeetCode Clone with Study Groups, Live Coding, and AI Assistance).
+This guide provides comprehensive, step-by-step instructions to deploy both the **Backend API** (Node.js + Express + Prisma + PostgreSQL) and **Frontend Client** (React + Vite) of the Codzy platform.
 
 ---
 
 ## 📋 Table of Contents
 1. [Prerequisites & External Services](#1-prerequisites--external-services)
-2. [Backend Deployment (Render / Railway / Docker)](#2-backend-deployment)
-3. [Frontend Deployment (Vercel / Netlify)](#3-frontend-deployment)
-4. [Environment Variables Reference](#4-environment-variables-reference)
-5. [Verification & Health Check](#5-verification--health-check)
-6. [Troubleshooting & FAQs](#6-troubleshooting--faqs)
+2. [Database Setup & Migration (PostgreSQL)](#2-database-setup--migration)
+3. [Backend Deployment (Render / Railway / Docker)](#3-backend-deployment)
+4. [Frontend Deployment (Vercel / Netlify)](#4-frontend-deployment)
+5. [Environment Variables Reference](#5-environment-variables-reference)
+6. [Verification & Health Check](#6-verification--health-check)
+7. [Troubleshooting & FAQs](#7-troubleshooting--faqs)
 
 ---
 
@@ -20,32 +21,49 @@ Before deploying, ensure you have credentials for the following services:
 
 | Service | Purpose | Setup Link / Steps |
 |---|---|---|
-| **MongoDB Atlas** | Database | Create a free M0 cluster on [MongoDB Atlas](https://www.mongodb.com/atlas), whitelist `0.0.0.0/0` in Network Access, and get your connection string. |
+| **PostgreSQL Database** | Primary Database | Provision a free PostgreSQL database on [Neon](https://neon.tech), [Supabase](https://supabase.com), [Railway](https://railway.app), or [AWS RDS], and get your `postgresql://...` connection string. |
 | **Upstash / Redis Cloud** | Token Blacklist & Session Store | Create a free Redis instance on [Upstash](https://upstash.com/) or [Redis Cloud](https://redis.io/cloud/) and copy the `rediss://...` connection URL. |
-| **Stream.io** | Video Calls & Live Chat | Create an app on [Stream.io](https://getstream.io/) and get your `API_KEY` and `API_SECRET`. |
+| **Stream.io** | Video Calls & Live Chat | Create an app on [Stream.io](https://getstream.io/) and get your `STREAM_API_KEY` and `STREAM_API_SECRET`. |
 | **Google Gemini AI** | AI Problem Solving / Hints | Generate an API key from [Google AI Studio](https://aistudio.google.com/). |
 | **Cloudinary** | Video / Media Storage | Get your `Cloud Name`, `API Key`, and `API Secret` from [Cloudinary Console](https://cloudinary.com/). |
 
 ---
 
-## 2. Backend Deployment
+## 2. Database Setup & Migration
+
+1. In your local or CI environment, ensure your `DATABASE_URL` is set in `Day02/.env`.
+2. Push your Prisma schema to PostgreSQL:
+   ```bash
+   cd Day02
+   npx prisma migrate deploy
+   ```
+   *(Or for initial development creation: `npx prisma db push` or `npx prisma migrate dev --name init`)*
+3. **Optional (Migrate Data from MongoDB):**
+   If you have existing MongoDB Atlas data to migrate into PostgreSQL:
+   ```bash
+   npm run migrate:data
+   ```
+
+---
+
+## 3. Backend Deployment
 
 ### Option A: Deploy on [Render](https://render.com) (Recommended)
 
 1. Sign in to **Render** and click **New +** -> **Web Service**.
 2. Connect your GitHub repository.
 3. Configure the service:
-   - **Name**: `codzy-backend` (or your preferred name)
+   - **Name**: `codzy-backend`
    - **Root Directory**: `Day02`
    - **Environment**: `Node`
-   - **Build Command**: `npm install`
+   - **Build Command**: `npm install && npx prisma generate`
    - **Start Command**: `npm start`
 4. Under **Environment Variables**, add:
    ```env
    NODE_ENV=production
    PORT=10000
    CLIENT_URL=https://your-frontend.vercel.app
-   DB_CONNECTION_STRING=mongodb+srv://<user>:<password>@cluster0.mongodb.net/Leetcode?retryWrites=true&w=majority
+   DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<database>?sslmode=require
    JWT_KEY=your_secure_jwt_secret_min_32_characters
    REDIS_URL=rediss://default:<password>@<host>:<port>
    GEMINI_KEY=your_gemini_api_key
@@ -78,7 +96,7 @@ Before deploying, ensure you have credentials for the following services:
 
 ---
 
-## 3. Frontend Deployment
+## 4. Frontend Deployment
 
 ### Deploy on [Vercel](https://vercel.com) (Recommended)
 
@@ -101,7 +119,7 @@ Before deploying, ensure you have credentials for the following services:
 
 ---
 
-## 4. Environment Variables Reference
+## 5. Environment Variables Reference
 
 ### Backend (`Day02/.env`)
 
@@ -110,7 +128,7 @@ Before deploying, ensure you have credentials for the following services:
 | `NODE_ENV` | Yes | App environment (`production` enables secure cookies & strict CORS) | `production` |
 | `PORT` | Optional | Port for Express server (Defaults to `5000`) | `5000` |
 | `CLIENT_URL` | Yes | Allowed frontend origin(s) (comma-separated if multiple) | `https://codzy.vercel.app` |
-| `DB_CONNECTION_STRING` | Yes | MongoDB Atlas connection string | `mongodb+srv://...` |
+| `DATABASE_URL` | Yes | PostgreSQL connection string | `postgresql://user:pass@host:5432/db?sslmode=require` |
 | `JWT_KEY` | Yes | Secret key used for JWT signing & verification | `secret_key_123` |
 | `REDIS_URL` | Yes | Redis connection URL for token blacklisting | `rediss://default:...` |
 | `GEMINI_KEY` | Yes | Google Gemini AI API key | `AIza...` |
@@ -130,7 +148,7 @@ Before deploying, ensure you have credentials for the following services:
 
 ---
 
-## 5. Verification & Health Check
+## 6. Verification & Health Check
 
 After both frontend and backend are deployed:
 
@@ -140,7 +158,7 @@ After both frontend and backend are deployed:
    {
      "status": "ok",
      "uptime": 12.34,
-     "timestamp": "2026-09-11T..."
+     "timestamp": "2026-09-13T..."
    }
    ```
 
@@ -153,7 +171,7 @@ After both frontend and backend are deployed:
 
 ---
 
-## 6. Troubleshooting & FAQs
+## 7. Troubleshooting & FAQs
 
 - **Cookies not saved on frontend**:
   Ensure `NODE_ENV=production` is set in the backend environment. In production mode, cookies use `SameSite=None` and `Secure=true`, which is required for cross-domain communication between Vercel (`.vercel.app`) and Render (`.onrender.com`).

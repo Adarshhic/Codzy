@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/user');
+const prisma = require('../config/prisma');
 const redisClient = require('../config/redis');
 
 const adminMiddleware = async (req, res, next) => {
@@ -27,9 +27,9 @@ const adminMiddleware = async (req, res, next) => {
     }
 
     const payload = jwt.verify(token, process.env.JWT_KEY);
-    const { _id } = payload;
+    const userId = payload._id || payload.id;
 
-    if (!_id) {
+    if (!userId) {
       return res.status(401).json({
         message: 'Unauthorized: Invalid token'
       });
@@ -41,14 +41,30 @@ const adminMiddleware = async (req, res, next) => {
       });
     }
 
-    const result = await User.findById(_id).select('-password');
-    if (!result) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        FirstName: true,
+        LastName: true,
+        EmailId: true,
+        age: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    if (!user) {
       return res.status(401).json({
         message: "Unauthorized: User doesn't exist"
       });
     }
 
-    req.user = result;
+    req.user = {
+      ...user,
+      _id: user.id
+    };
 
     next();
   } catch (err) {

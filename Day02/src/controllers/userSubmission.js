@@ -1,100 +1,130 @@
-const Submission = require('../models/Submission');
-const Problem = require('../models/problem');
+const prisma = require('../config/prisma');
 const { runCodeWithPiston } = require('../utils/problemUtility');
+const { generateId } = require('../utils/idGenerator');
+const serializeWithId = require('../utils/responseSerializer');
 
 const submitCode = async (req, res) => {
   try {
     let { problemId, code, language } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
+
     if (!problemId || !code || !language) {
       return res.status(400).json({ message: 'Some fields are missing' });
     }
+
     // 1️⃣ Validate problem
-    const problem = await Problem.findById(problemId);
+    const problem = await prisma.problem.findUnique({
+      where: { id: problemId }
+    });
     if (!problem) {
       return res.status(404).json({ message: 'Problem not found' });
     }
-   if (language === 'cpp') language = 'c++';
 
+    if (language === 'cpp') language = 'c++';
 
     const visibleTestCases = problem.visibleTestCases || [];
     const hiddenTestCases = problem.hiddenTestCases || [];
     const allTestCases = [...visibleTestCases, ...hiddenTestCases];
 
     // 2️⃣ Create submission (pending)
-    const submission = await Submission.create({
-      userId,
-      problemId,
-      code,
-      language,
-      status: 'pending',
-      testCasesTotal: allTestCases.length
+    const submissionId = generateId();
+    let submission = await prisma.submission.create({
+      data: {
+        id: submissionId,
+        userId,
+        problemId,
+        code,
+        language,
+        status: 'pending',
+        testCasesTotal: allTestCases.length
+      }
     });
 
     let passedCount = 0;
 
     // 3️⃣ Execute test cases
     for (const testCase of allTestCases) {
+      const inputStr = Array.isArray(testCase.input) ? testCase.input.join('\n') : (testCase.input || '');
+      const expectedOutputStr = Array.isArray(testCase.output) ? testCase.output.join('\n').trim() : (testCase.output || '').trim();
+
       const result = await runCodeWithPiston({
         language,
         code,
-        input: testCase.input.join('\n')
+        input: inputStr
       });
 
       if (result.stderr) {
-        submission.status = 'error';
-        submission.errorMessage = result.stderr;
-        submission.testCasesPassed = passedCount;
-        await submission.save();
+        submission = await prisma.submission.update({
+          where: { id: submissionId },
+          data: {
+            status: 'error',
+            errorMessage: result.stderr,
+            testCasesPassed: passedCount
+          }
+        });
 
         return res.status(200).json({
           message: 'Runtime Error',
-          submission
+          submission: serializeWithId(submission)
         });
       }
 
-      const expectedOutput = testCase.output.join('\n').trim();
-      const actualOutput = result.stdout.trim();
+      const actualOutput = (result.stdout || '').trim();
 
-      if (actualOutput === expectedOutput) {
+      if (actualOutput === expectedOutputStr) {
         passedCount++;
       } else {
-        submission.status = 'wrong';
-        submission.testCasesPassed = passedCount;
-        await submission.save();
+        submission = await prisma.submission.update({
+          where: { id: submissionId },
+          data: {
+            status: 'wrong',
+            testCasesPassed: passedCount
+          }
+        });
 
         return res.status(200).json({
           message: 'Wrong Answer',
-          submission
+          submission: serializeWithId(submission)
         });
       }
     }
 
     // 4️⃣ Accepted
-    submission.status = 'accepted';
-    submission.testCasesPassed = passedCount;
-    submission.runtime = 120;
-    submission.memory = 2048;
-    submission.errorMessage = '';
-
-    await submission.save();
-
-    // updated
-    const io = req.app.get('io');
-      if (io) {
-        await notifyStudyGroups(req.user._id, problemId, io);
+    submission = await prisma.submission.update({
+      where: { id: submissionId },
+      data: {
+        status: 'accepted',
+        testCasesPassed: passedCount,
+        runtime: 120,
+        memory: 2048,
+        errorMessage: ''
       }
+    });
 
-    // ✅ TEACHER'S WAY: Update solved problems
-if (!req.user.problemsSolved.includes(problemId)) {
-  req.user.problemsSolved.push(problemId);
-  await req.user.save();
-}
+    // Notify study groups
+    const io = req.app.get('io');
+    if (io) {
+      await notifyStudyGroups(userId, problemId, io);
+    }
 
+    // Update solved problems relation
+    await prisma.userSolvedProblem.upsert({
+      where: {
+        userId_problemId: {
+          userId,
+          problemId
+        }
+      },
+      create: {
+        userId,
+        problemId
+      },
+      update: {}
+    });
 
     return res.status(200).json({
       message: 'Accepted',
-      submission
+      submission: serializeWithId(submission)
     });
 
   } catch (err) {
@@ -107,20 +137,20 @@ if (!req.user.problemsSolved.includes(problemId)) {
 
 const runCode = async (req, res) => {
   try {
-    const userId = req.user._id; // ✅ user from middleware
+    const userId = req.user.id || req.user._id;
     const problemId = req.params.id;
 
     let { code, language } = req.body;
     if (!userId || !code || !problemId || !language)
       return res.status(400).send("Some field missing");
 
-    // 1️⃣ Fetch the problem
-    const problem = await Problem.findById(problemId);
+    const problem = await prisma.problem.findUnique({
+      where: { id: problemId }
+    });
     if (!problem) return res.status(404).send("Problem not found");
 
     if (language === 'c++') language = 'c++';
 
-    // 2️⃣ Take only visible test cases
     const testCases = problem.visibleTestCases || [];
 
     let testCasesPassed = 0;
@@ -131,9 +161,8 @@ const runCode = async (req, res) => {
 
     const testResult = [];
 
-    // 3️⃣ Run each test case
     for (const testCase of testCases) {
-      const inputStr = Array.isArray(testCase.input) ? testCase.input.join('\n') : testCase.input;
+      const inputStr = Array.isArray(testCase.input) ? testCase.input.join('\n') : (testCase.input || '');
       const expectedOutputStr = Array.isArray(testCase.output) ? testCase.output.join('\n').trim() : (testCase.output || '').trim();
 
       const result = await runCodeWithPiston({
@@ -164,7 +193,6 @@ const runCode = async (req, res) => {
       maxMemory = Math.max(maxMemory, result.memory || 0);
     }
 
-    // 4️⃣ Return structured JSON
     res.status(201).json({
       success: status,
       testCases: testResult,
@@ -182,28 +210,30 @@ const runCode = async (req, res) => {
 
 const notifyStudyGroups = async (userId, problemId, io) => {
   try {
-    const GroupMember = require('../models/GroupMember');
-    const GroupSession = require('../models/GroupSession');
-    const Problem = require('../models/problem');
-    
-    // Find active sessions where user is a member and problem matches
-    const userGroups = await GroupMember.find({ userId }).select('groupId');
+    const userGroups = await prisma.groupMember.findMany({
+      where: { userId },
+      select: { groupId: true }
+    });
     const groupIds = userGroups.map(g => g.groupId);
-    
-    const activeSessions = await GroupSession.find({
-      groupId: { $in: groupIds },
-      problemId: problemId,
-      status: 'active'
-    }).populate('problemId', 'title');
-    
-    // Emit socket event to each active session
+
+    const activeSessions = await prisma.groupSession.findMany({
+      where: {
+        groupId: { in: groupIds },
+        problemId: problemId,
+        status: 'active'
+      },
+      include: {
+        problem: { select: { title: true } }
+      }
+    });
+
     activeSessions.forEach(session => {
-      const roomId = `session-${session._id}`;
+      const roomId = `session-${session.id}`;
       io.to(roomId).emit('member-solved-problem', {
         userId: userId,
         problemId: problemId,
-        problemTitle: session.problemId.title,
-        sessionId: session._id,
+        problemTitle: session.problem.title,
+        sessionId: session.id,
         timestamp: new Date()
       });
     });
@@ -212,32 +242,4 @@ const notifyStudyGroups = async (userId, problemId, io) => {
   }
 };
 
-// EXAMPLE: How to integrate into your existing submitCode function
-// Find this section in your code and add the notification:
-
-/*
-const submitCode = async (req, res) => {
-  try {
-    // ... your existing submission logic ...
-    
-    // After creating the submission and it's accepted:
-    if (submission.status === 'accepted') {
-      // Your existing code to update user's solved problems
-      
-      // ⭐ ADD THIS: Notify study groups
-      const io = req.app.get('io');
-      if (io) {
-        await notifyStudyGroups(req.user._id, problemId, io);
-      }
-    }
-    
-    res.status(200).json({
-      success: true,
-      submission: submission
-    });
-  } catch (error) {
-    // ... error handling ...
-  }
-};
-*/
-module.exports = {submitCode, runCode , notifyStudyGroups};
+module.exports = { submitCode, runCode, notifyStudyGroups };

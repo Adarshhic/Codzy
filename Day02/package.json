@@ -4,15 +4,19 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "migrate:data": "node scripts/migrateMongoToPostgres.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  
   "description": "",
   "dependencies": {
     "@google/genai": "^1.38.0",
+    "@prisma/client": "^6.19.3",
     "@stream-io/node-sdk": "^0.7.38",
     "@stream-io/video-react-sdk": "^1.31.8",
     "axios": "^1.13.2",
@@ -25,7 +29,7 @@
     "express": "^5.2.1",
     "inngest": "^3.50.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.1.3",
+    "mongodb": "^6.14.2",
     "nanoid": "^5.1.6",
     "react-icons": "^5.5.0",
     "redis": "^5.10.0",
@@ -35,6 +39,7 @@
     "validator": "^13.15.26"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "prisma": "^6.19.3"
   }
 }

@@ -1,9 +1,7 @@
-const StudyGroup = require('../models/StudyGroup');
-const GroupMember = require('../models/GroupMember');
-const GroupSession = require('../models/GroupSession');
-const GroupMessage = require('../models/GroupMessage');
-const GroupProgress = require('../models/GroupProgress');
+const prisma = require('../config/prisma');
 const { nanoid } = require('nanoid');
+const { generateId } = require('../utils/idGenerator');
+const serializeWithId = require('../utils/responseSerializer');
 
 // Generate unique 8-character invite code
 const generateInviteCode = () => {
@@ -14,38 +12,45 @@ const generateInviteCode = () => {
 const createGroup = async (req, res) => {
   try {
     const { name, description, maxMembers, isPrivate } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
     // Generate unique invite code
     let inviteCode;
     let isUnique = false;
-    
+
     while (!isUnique) {
       inviteCode = generateInviteCode();
-      const existing = await StudyGroup.findOne({ inviteCode });
+      const existing = await prisma.studyGroup.findUnique({ where: { inviteCode } });
       if (!existing) isUnique = true;
     }
 
-    // Create group
-    const group = await StudyGroup.create({
-      name,
-      description,
-      inviteCode,
-      createdBy: userId,
-      maxMembers: maxMembers || 50,
-      isPrivate: isPrivate !== undefined ? isPrivate : true
+    const groupId = generateId();
+
+    const group = await prisma.studyGroup.create({
+      data: {
+        id: groupId,
+        name,
+        description: description || null,
+        inviteCode,
+        createdBy: userId,
+        maxMembers: maxMembers || 50,
+        isPrivate: isPrivate !== undefined ? isPrivate : true
+      }
     });
 
     // Add creator as admin member
-    await GroupMember.create({
-      groupId: group._id,
-      userId: userId,
-      role: 'admin'
+    await prisma.groupMember.create({
+      data: {
+        id: generateId(),
+        groupId: group.id,
+        userId: userId,
+        role: 'admin'
+      }
     });
 
     res.status(201).json({
       success: true,
-      group,
+      group: serializeWithId(group),
       message: 'Study group created successfully'
     });
   } catch (error) {
@@ -61,10 +66,9 @@ const createGroup = async (req, res) => {
 const joinGroup = async (req, res) => {
   try {
     const { inviteCode } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Find group
-    const group = await StudyGroup.findOne({ inviteCode });
+    const group = await prisma.studyGroup.findUnique({ where: { inviteCode } });
     if (!group) {
       return res.status(404).json({
         success: false,
@@ -72,10 +76,13 @@ const joinGroup = async (req, res) => {
       });
     }
 
-    // Check if already a member
-    const existingMember = await GroupMember.findOne({
-      groupId: group._id,
-      userId: userId
+    const existingMember = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId: group.id,
+          userId: userId
+        }
+      }
     });
 
     if (existingMember) {
@@ -85,8 +92,7 @@ const joinGroup = async (req, res) => {
       });
     }
 
-    // Check if group is full
-    const memberCount = await GroupMember.countDocuments({ groupId: group._id });
+    const memberCount = await prisma.groupMember.count({ where: { groupId: group.id } });
     if (memberCount >= group.maxMembers) {
       return res.status(400).json({
         success: false,
@@ -94,16 +100,18 @@ const joinGroup = async (req, res) => {
       });
     }
 
-    // Add member
-    await GroupMember.create({
-      groupId: group._id,
-      userId: userId,
-      role: 'member'
+    await prisma.groupMember.create({
+      data: {
+        id: generateId(),
+        groupId: group.id,
+        userId: userId,
+        role: 'member'
+      }
     });
 
     res.status(200).json({
       success: true,
-      group,
+      group: serializeWithId(group),
       message: 'Successfully joined the group'
     });
   } catch (error) {
@@ -118,20 +126,29 @@ const joinGroup = async (req, res) => {
 // Get User's Groups
 const getUserGroups = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    const memberships = await GroupMember.find({ userId })
-      .populate({
-        path: 'groupId',
-        populate: {
-          path: 'createdBy',
-          select: 'FirstName EmailId'
+    const memberships = await prisma.groupMember.findMany({
+      where: { userId },
+      include: {
+        group: {
+          include: {
+            creator: {
+              select: {
+                id: true,
+                FirstName: true,
+                EmailId: true
+              }
+            }
+          }
         }
-      })
-      .sort({ joinedAt: -1 });
+      },
+      orderBy: { joinedAt: 'desc' }
+    });
 
-    const groups = memberships.map(m => ({
-      ...m.groupId.toObject(),
+    const groups = memberships.map(m => serializeWithId({
+      ...m.group,
+      createdBy: serializeWithId(m.group.creator),
       userRole: m.role,
       joinedAt: m.joinedAt
     }));
@@ -153,10 +170,17 @@ const getUserGroups = async (req, res) => {
 const getGroupDetails = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Check membership
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      }
+    });
+
     if (!member) {
       return res.status(403).json({
         success: false,
@@ -164,23 +188,47 @@ const getGroupDetails = async (req, res) => {
       });
     }
 
-    const group = await StudyGroup.findById(groupId)
-      .populate('createdBy', 'FirstName EmailId');
+    const group = await prisma.studyGroup.findUnique({
+      where: { id: groupId },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            FirstName: true,
+            EmailId: true
+          }
+        }
+      }
+    });
 
-    const members = await GroupMember.find({ groupId })
-      .populate('userId', 'FirstName EmailId')
-      .sort({ role: 1, joinedAt: 1 });
+    const members = await prisma.groupMember.findMany({
+      where: { groupId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            FirstName: true,
+            EmailId: true
+          }
+        }
+      },
+      orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }]
+    });
 
     const memberCount = members.length;
 
     res.status(200).json({
       success: true,
-      group: {
-        ...group.toObject(),
+      group: serializeWithId({
+        ...group,
+        createdBy: serializeWithId(group.creator),
         memberCount,
         userRole: member.role
-      },
-      members
+      }),
+      members: members.map(m => serializeWithId({
+        ...m,
+        userId: serializeWithId(m.user)
+      }))
     });
   } catch (error) {
     console.error('Get group details error:', error);
@@ -195,9 +243,17 @@ const getGroupDetails = async (req, res) => {
 const leaveGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      }
+    });
+
     if (!member) {
       return res.status(404).json({
         success: false,
@@ -205,25 +261,24 @@ const leaveGroup = async (req, res) => {
       });
     }
 
-    // Check if user is admin
     if (member.role === 'admin') {
-      const memberCount = await GroupMember.countDocuments({ groupId });
-      
+      const memberCount = await prisma.groupMember.count({ where: { groupId } });
+
       if (memberCount > 1) {
         return res.status(400).json({
           success: false,
           error: 'Transfer admin role before leaving'
         });
       } else {
-        // Last member (admin) - delete entire group
-        await StudyGroup.findByIdAndDelete(groupId);
-        await GroupMember.deleteMany({ groupId });
-        await GroupSession.deleteMany({ groupId });
-        await GroupMessage.deleteMany({ groupId });
-        await GroupProgress.deleteMany({ groupId });
+        // Last member (admin) - delete entire group; PostgreSQL CASCADE deletes members, sessions, messages, progress
+        await prisma.studyGroup.delete({
+          where: { id: groupId }
+        });
       }
     } else {
-      await GroupMember.findByIdAndDelete(member._id);
+      await prisma.groupMember.delete({
+        where: { id: member.id }
+      });
     }
 
     res.status(200).json({
@@ -239,15 +294,22 @@ const leaveGroup = async (req, res) => {
   }
 };
 
-// Start Session (Admin/Moderator only)
+// Start Session
 const startSession = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { problemId } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Check if user is admin/moderator
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      }
+    });
+
     if (!member || (member.role !== 'admin' && member.role !== 'moderator')) {
       return res.status(403).json({
         success: false,
@@ -255,27 +317,34 @@ const startSession = async (req, res) => {
       });
     }
 
-    // End any active sessions
-    await GroupSession.updateMany(
-      { groupId, status: 'active' },
-      { status: 'completed', endedAt: new Date() }
-    );
-
-    // Create new session
-    const session = await GroupSession.create({
-      groupId,
-      problemId,
-      createdBy: userId,
-      status: 'active'
+    // End active sessions
+    await prisma.groupSession.updateMany({
+      where: { groupId, status: 'active' },
+      data: { status: 'completed', endedAt: new Date() }
     });
 
-    const populatedSession = await GroupSession.findById(session._id)
-      .populate('problemId', 'title difficulty tags')
-      .populate('createdBy', 'FirstName EmailId');
+    const sessionId = generateId();
+    const session = await prisma.groupSession.create({
+      data: {
+        id: sessionId,
+        groupId,
+        problemId,
+        createdBy: userId,
+        status: 'active'
+      },
+      include: {
+        problem: { select: { id: true, title: true, difficulty: true, tags: true } },
+        creator: { select: { id: true, FirstName: true, EmailId: true } }
+      }
+    });
 
     res.status(201).json({
       success: true,
-      session: populatedSession
+      session: serializeWithId({
+        ...session,
+        problemId: serializeWithId(session.problem),
+        createdBy: serializeWithId(session.creator)
+      })
     });
   } catch (error) {
     console.error('Start session error:', error);
@@ -290,10 +359,17 @@ const startSession = async (req, res) => {
 const getActiveSession = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Check membership
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      }
+    });
+
     if (!member) {
       return res.status(403).json({
         success: false,
@@ -301,13 +377,21 @@ const getActiveSession = async (req, res) => {
       });
     }
 
-    const session = await GroupSession.findOne({ groupId, status: 'active' })
-      .populate('problemId')
-      .populate('createdBy', 'FirstName EmailId');
+    const session = await prisma.groupSession.findFirst({
+      where: { groupId, status: 'active' },
+      include: {
+        problem: true,
+        creator: { select: { id: true, FirstName: true, EmailId: true } }
+      }
+    });
 
     res.status(200).json({
       success: true,
-      session
+      session: session ? serializeWithId({
+        ...session,
+        problemId: serializeWithId(session.problem),
+        createdBy: serializeWithId(session.creator)
+      }) : null
     });
   } catch (error) {
     console.error('Get active session error:', error);
@@ -323,10 +407,17 @@ const getGroupMessages = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { sessionId, limit = 50 } = req.query;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Check membership
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      }
+    });
+
     if (!member) {
       return res.status(403).json({
         success: false,
@@ -334,17 +425,26 @@ const getGroupMessages = async (req, res) => {
       });
     }
 
-    const query = { groupId };
-    if (sessionId) query.sessionId = sessionId;
+    const where = { groupId };
+    if (sessionId) where.sessionId = sessionId;
 
-    const messages = await GroupMessage.find(query)
-      .populate('userId', 'FirstName EmailId')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit));
+    const messages = await prisma.groupMessage.findMany({
+      where,
+      include: {
+        user: { select: { id: true, FirstName: true, EmailId: true } }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: parseInt(limit, 10)
+    });
+
+    const serialized = messages.map(m => serializeWithId({
+      ...m,
+      userId: serializeWithId(m.user)
+    })).reverse();
 
     res.status(200).json({
       success: true,
-      messages: messages.reverse()
+      messages: serialized
     });
   } catch (error) {
     console.error('Get messages error:', error);
@@ -359,10 +459,17 @@ const getGroupMessages = async (req, res) => {
 const getGroupProgress = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Check membership
-    const member = await GroupMember.findOne({ groupId, userId });
+    const member = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      }
+    });
+
     if (!member) {
       return res.status(403).json({
         success: false,
@@ -370,10 +477,24 @@ const getGroupProgress = async (req, res) => {
       });
     }
 
-    const progress = await GroupProgress.find({ groupId })
-      .populate('problemId', 'title difficulty tags')
-      .populate('solvedBy', 'FirstName EmailId')
-      .sort({ completedAt: -1 });
+    const progressRecords = await prisma.groupProgress.findMany({
+      where: { groupId },
+      include: {
+        problem: { select: { id: true, title: true, difficulty: true, tags: true } },
+        solvers: {
+          include: {
+            user: { select: { id: true, FirstName: true, EmailId: true } }
+          }
+        }
+      },
+      orderBy: { completedAt: 'desc' }
+    });
+
+    const progress = progressRecords.map(p => serializeWithId({
+      ...p,
+      problemId: serializeWithId(p.problem),
+      solvedBy: p.solvers.map(s => serializeWithId(s.user))
+    }));
 
     res.status(200).json({
       success: true,

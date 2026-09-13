@@ -1,10 +1,7 @@
 const cloudinary = require('cloudinary').v2;
-const Problem = require("../models/problem");
-const User = require("../models/user");
-const SolutionVideo = require("../models/solutionVideo");
-const { sanitizeFilter } = require('mongoose');
-
-
+const prisma = require('../config/prisma');
+const { generateId } = require('../utils/idGenerator');
+const serializeWithId = require('../utils/responseSerializer');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -14,27 +11,24 @@ cloudinary.config({
 
 const generateUploadSignature = async (req, res) => {
   try {
-    
     const { problemId } = req.params;
-    
-    const userId = req.user._id;
-    // Verify problem exists
-    const problem = await Problem.findById(problemId);
+    const userId = req.user.id || req.user._id;
+
+    const problem = await prisma.problem.findUnique({
+      where: { id: problemId }
+    });
     if (!problem) {
       return res.status(404).json({ error: 'Problem not found' });
     }
 
-    // Generate unique public_id for the video
     const timestamp = Math.round(new Date().getTime() / 1000);
     const publicId = `leetcode-solutions/${problemId}/${userId}_${timestamp}`;
-    
-    // Upload parameters
+
     const uploadParams = {
       timestamp: timestamp,
       public_id: publicId,
     };
 
-    // Generate signature
     const signature = cloudinary.utils.api_sign_request(
       uploadParams,
       process.env.CLOUDINARY_API_SECRET
@@ -55,7 +49,6 @@ const generateUploadSignature = async (req, res) => {
   }
 };
 
-
 const saveVideoMetadata = async (req, res) => {
   try {
     const {
@@ -65,9 +58,8 @@ const saveVideoMetadata = async (req, res) => {
       duration,
     } = req.body;
 
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
-    // Verify the upload with Cloudinary
     const cloudinaryResource = await cloudinary.api.resource(
       cloudinaryPublicId,
       { resource_type: 'video' }
@@ -77,54 +69,45 @@ const saveVideoMetadata = async (req, res) => {
       return res.status(400).json({ error: 'Video not found on Cloudinary' });
     }
 
-    // Check if video already exists for this problem and user
-    const existingVideo = await SolutionVideo.findOne({
-      problemId,
-      userId,
-      cloudinaryPublicId
+    const existingVideo = await prisma.solutionVideo.findFirst({
+      where: {
+        problemId,
+        userId,
+        cloudinaryPublicId
+      }
     });
 
     if (existingVideo) {
       return res.status(409).json({ error: 'Video already exists' });
     }
 
-    // const thumbnailUrl = cloudinary.url(cloudinaryResource.public_id, {
-    // resource_type: 'image',  
-    // transformation: [
-    // { width: 400, height: 225, crop: 'fill' },
-    // { quality: 'auto' },
-    // { start_offset: 'auto' }  
-    // ],
-    // format: 'jpg'
-    // });
-
-    // const thumbnailUrl = cloudinary.image(cloudinaryResource.public_id,{resource_type: "video"})
     const thumbnailUrl = cloudinary.url(cloudinaryResource.public_id, {
-  resource_type: 'video',
-  transformation: [
-    { width: 400, height: 225, crop: 'fill' },
-    { quality: 'auto' },
-    { start_offset: '0' } // Get frame at start, or use a specific time like '3s'
-  ],
-  format: 'jpg'
-});
-
-// https://cloudinary.com/documentation/video_effects_and_enhancements#video_thumbnails
-    // Create video solution record
-    const videoSolution = await SolutionVideo.create({
-      problemId,
-      userId,
-      cloudinaryPublicId,
-      secureUrl,
-      duration: cloudinaryResource.duration || duration,
-      thumbnailUrl
+      resource_type: 'video',
+      transformation: [
+        { width: 400, height: 225, crop: 'fill' },
+        { quality: 'auto' },
+        { start_offset: '0' }
+      ],
+      format: 'jpg'
     });
 
+    const videoSolution = await prisma.solutionVideo.create({
+      data: {
+        id: generateId(),
+        problemId,
+        userId,
+        cloudinaryPublicId,
+        secureUrl,
+        duration: cloudinaryResource.duration || duration,
+        thumbnailUrl
+      }
+    });
 
     res.status(201).json({
       message: 'Video solution saved successfully',
       videoSolution: {
-        id: videoSolution._id,
+        id: videoSolution.id,
+        _id: videoSolution.id,
         thumbnailUrl: videoSolution.thumbnailUrl,
         duration: videoSolution.duration,
         uploadedAt: videoSolution.createdAt
@@ -137,21 +120,27 @@ const saveVideoMetadata = async (req, res) => {
   }
 };
 
-
 const deleteVideo = async (req, res) => {
   try {
     const { problemId } = req.params;
-    const userId = req.user._id;
 
-    const video = await SolutionVideo.findOneAndDelete({problemId:problemId});
-    
-   
+    const video = await prisma.solutionVideo.findFirst({
+      where: { problemId }
+    });
 
     if (!video) {
       return res.status(404).json({ error: 'Video not found' });
     }
 
-    await cloudinary.uploader.destroy(video.cloudinaryPublicId, { resource_type: 'video' , invalidate: true });
+    await prisma.solutionVideo.delete({
+      where: { id: video.id }
+    });
+
+    try {
+      await cloudinary.uploader.destroy(video.cloudinaryPublicId, { resource_type: 'video', invalidate: true });
+    } catch (cErr) {
+      console.warn('Cloudinary delete warning:', cErr.message);
+    }
 
     res.json({ message: 'Video deleted successfully' });
 
@@ -160,11 +149,14 @@ const deleteVideo = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete video' });
   }
 };
+
 const getVideoByProblem = async (req, res) => {
   try {
     const { problemId } = req.params;
 
-    const video = await SolutionVideo.findOne({ problemId: problemId });
+    const video = await prisma.solutionVideo.findFirst({
+      where: { problemId }
+    });
 
     if (!video) {
       return res.status(404).json({ error: 'No video found for this problem' });
@@ -185,5 +177,9 @@ const getVideoByProblem = async (req, res) => {
   }
 };
 
-
-module.exports = {generateUploadSignature,saveVideoMetadata,deleteVideo,getVideoByProblem};
+module.exports = {
+  generateUploadSignature,
+  saveVideoMetadata,
+  deleteVideo,
+  getVideoByProblem
+};

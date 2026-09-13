@@ -1,5 +1,4 @@
 const express = require('express');
-const { get } = require('mongoose');
 
 
 const problemRouter = express.Router();
